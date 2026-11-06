@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+dev-dist/
+*.tsbuildinfo
+
+# env (秘密情報を含むため Git 管理しない)
+.env
+.env.*
+!.env.example
+
+# supabase local
+supabase/.branches/
+supabase/.temp/
+supabase/functions/.env
+
+# capacitor (将来)
+android/app/build/
+ios/App/Pods/
+
+# misc
+.DS_Store
+*.log
+coverage/
+.vercel
+e2e/screenshots/

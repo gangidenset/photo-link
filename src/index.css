@@ -1,0 +1,154 @@
+@import 'tailwindcss';
+
+/* ダークモード: data-theme 属性で切り替え (設定画面で「システムに合わせる/ライト/ダーク」) */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP',
+    'Segoe UI', Roboto, 'Helvetica Neue', Meiryo, sans-serif;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+}
+
+:root {
+  --bg: #faf9f7;
+  --surface: #ffffff;
+  --surface-2: #f1efeb;
+  --ink: #1d1b19;
+  --ink-2: #5b5752;
+  --ink-3: #8d8780;
+  --line: #e6e2dc;
+  --accent: #c24a2c;
+  --accent-ink: #ffffff;
+  --accent-soft: #fbe9e3;
+  --danger: #c0262d;
+  --success: #2f7d4f;
+
+  /* Safe Area (iPhone のノッチ・ホームインジケーター) */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --nav-h: 60px;
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #121110;
+  --surface: #1c1b19;
+  --surface-2: #2a2826;
+  --ink: #f3f1ee;
+  --ink-2: #bdb7b0;
+  --ink-3: #8a847d;
+  --line: #34312e;
+  --accent: #ff8a6b;
+  --accent-ink: #1d1b19;
+  --accent-soft: #3a2420;
+  --danger: #ff6b6b;
+  --success: #5fc48a;
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+body {
+  min-height: 100dvh;
+  font-size: 16px; /* iOS で入力欄フォーカス時に勝手にズームしないよう 16px 以上 */
+  line-height: 1.6;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+button,
+a,
+[role='button'] {
+  touch-action: manipulation; /* ダブルタップズームによる遅延を防止 */
+}
+
+img {
+  -webkit-user-drag: none;
+}
+
+.pt-safe {
+  padding-top: var(--sat);
+}
+.pb-safe {
+  padding-bottom: var(--sab);
+}
+.px-safe {
+  padding-left: max(var(--sal), 1rem);
+  padding-right: max(var(--sar), 1rem);
+}
+/* 下部ナビの高さ + Safe Area 分の余白 */
+.pb-nav {
+  padding-bottom: calc(var(--nav-h) + var(--sab) + 1rem);
+}
+.bottom-nav-offset {
+  bottom: calc(var(--nav-h) + var(--sab) + 0.75rem);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+/* 長い一覧の描画を画面外では省略 (大量の写真でも滑らかに) */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out both;
+}
+.animate-sheet-up {
+  animation: sheet-up 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
