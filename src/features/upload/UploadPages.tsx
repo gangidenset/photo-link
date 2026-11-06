@@ -96,7 +96,7 @@ export function UploadPickerPage() {
   return (
     <>
       <PageHeader title="写真・動画を追加" back={`/albums/${albumId}`} />
-      <main className="px-safe mx-auto max-w-3xl py-4">
+      <main className={`px-safe mx-auto max-w-3xl py-4 ${files.length > 0 ? 'pb-24' : ''}`}>
         <p className="mb-4 text-sm text-ink-2">
           投稿先: <span className="font-semibold text-ink">{album.title}</span>
         </p>

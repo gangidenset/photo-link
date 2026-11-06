@@ -297,11 +297,14 @@ export function AuthConfirmPage() {
   useEffect(() => {
     const tokenHash = params.get('token_hash');
     const type = (params.get('type') ?? 'email') as EmailOtpType;
-    let next = safeNext(params.get('next'));
+    const explicitNext = params.get('next');
+    let next = safeNext(explicitNext);
     if (type === 'recovery') next = '/reset-password';
-    else {
+    else if (!explicitNext) {
+      // 登録前に開こうとしていた画面 (例: 招待リンク) に戻す
       try {
-        next = safeNext(localStorage.getItem(NEXT_KEY)) || next;
+        const stored = localStorage.getItem(NEXT_KEY);
+        if (stored) next = safeNext(stored);
         localStorage.removeItem(NEXT_KEY);
       } catch {
         /* ignore */

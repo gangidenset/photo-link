@@ -25,3 +25,4 @@ ios/App/Pods/
 *.log
 coverage/
 .vercel
+e2e/screenshots/
