@@ -34,6 +34,10 @@ export interface Album {
   photo_count: number;
   member_count: number;
   last_photo_at: string | null;
+  /** メンバー全員が招待リンクを作れる (オフならメンバーごとの権限) */
+  members_can_invite: boolean;
+  /** メンバー全員がカバー画像を変更できる */
+  members_can_change_cover: boolean;
   created_at: string;
   updated_at: string;
 }

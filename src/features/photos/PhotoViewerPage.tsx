@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Download, ImageIcon, Info, Loader2, MoreHorizontal, Share, Trash2, X } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { setAlbumCover, useAlbum } from '@/features/albums/api';
+import { setAlbumCover, useAlbum, useCanChangeCover } from '@/features/albums/api';
 import { CommentsSheet, ReactionBar, useComments } from '@/features/social/Social';
 import { getSignedUrl, peekSignedUrl, useSignedUrl } from '@/lib/signedUrls';
 import { toMessage } from '@/lib/errors';
@@ -92,6 +92,7 @@ export function PhotoViewerPage() {
   }, [go, prev, next, close, commentsOpen, infoOpen, menuOpen]);
 
   const isAlbumOwner = album?.owner_id === userId;
+  const canChangeCover = useCanChangeCover(albumId, userId);
   const canDelete = photo && (photo.uploader_id === userId || isAlbumOwner);
 
   async function onDownload() {
@@ -244,7 +245,7 @@ export function PhotoViewerPage() {
           <SheetItem icon={<Download className="size-5" />} onClick={onDownload}>
             オリジナルをダウンロード
           </SheetItem>
-          {isAlbumOwner && photo.media_type === 'image' && photo.thumb_path && (
+          {canChangeCover && photo.media_type === 'image' && photo.thumb_path && (
             <SheetItem
               icon={<ImageIcon className="size-5" />}
               onClick={async () => {

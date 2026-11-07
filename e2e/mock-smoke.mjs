@@ -37,6 +37,8 @@ const album = {
   photo_count: 80,
   member_count: 2,
   last_photo_at: iso(now - 3600e3),
+  members_can_invite: true,
+  members_can_change_cover: true,
   created_at: iso(now - 86400e3 * 10),
   updated_at: iso(now),
   cover: { id: 'p-0', thumb_path: `${ALBUM_ID}/p-0/thumb.jpg`, preview_path: `${ALBUM_ID}/p-0/preview.jpg` },
@@ -81,8 +83,11 @@ const session = { access_token: accessToken, refresh_token: 'refresh', token_typ
 
 // ---------------------------------------------------------------- モック API
 function createMock({ failFirstUploadsFor = null, memberView = null } = {}) {
-  // memberView: 自分がメンバー (オーナーは花子) の視点。canInvite で招待の権限の有無
-  const albumFx = memberView ? { ...album, owner_id: OTHER_ID } : album;
+  // memberView: 自分がメンバー (オーナーは花子) の視点
+  //   canInvite: 個別の招待の権限 / inviteAll・coverAll: アルバム全体の許可
+  const albumFx = memberView
+    ? { ...album, owner_id: OTHER_ID, members_can_invite: memberView.inviteAll ?? true, members_can_change_cover: memberView.coverAll ?? true }
+    : { ...album };
   const membersFx = memberView
     ? [
         { ...members[0], user_id: OTHER_ID, role: 'owner', can_invite: false, profile: profile(OTHER_ID, '花子') },
@@ -113,10 +118,15 @@ function createMock({ failFirstUploadsFor = null, memberView = null } = {}) {
     if (path === '/rest/v1/profiles') return json(single ? me : [me]);
     if (path === '/rest/v1/albums' && method === 'PATCH') {
       state.albumPatches = [...(state.albumPatches ?? []), req.postDataJSON()];
+      Object.assign(albumFx, req.postDataJSON());
       return json(single ? albumFx : [albumFx]);
     }
     if (path === '/rest/v1/albums') return json(single ? albumFx : [albumFx]);
     if (path === '/rest/v1/album_members') return json(membersFx);
+    if (path === '/rest/v1/rpc/set_album_cover') {
+      state.coverCalls = [...(state.coverCalls ?? []), req.postDataJSON()];
+      return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*' } });
+    }
     if (path === '/rest/v1/rpc/set_member_can_invite') {
       const b = req.postDataJSON();
       state.permissionCalls = [...(state.permissionCalls ?? []), b];
@@ -429,9 +439,17 @@ for (const [label, device] of [
   await page.screenshot({ path: `${OUT}/${label}-05a-cover.png` });
   await pick.click();
   await page.getByText('カバー画像を変更しました').waitFor({ timeout: 5000 }).catch(() => undefined);
-  check(`${label}: アルバムの写真からカバー画像を変更`, mock.state.albumPatches?.some((b) => b.cover_photo_id === 'p-1'), JSON.stringify(mock.state.albumPatches));
+  check(`${label}: アルバムの写真からカバー画像を変更`, mock.state.coverCalls?.some((b) => b.p_photo_id === 'p-1'), JSON.stringify(mock.state.coverCalls));
   await page.goto(`${BASE}/albums/${ALBUM_ID}/edit`);
   check(`${label}: 編集画面からもカバー画像を変更できる`, await page.getByRole('button', { name: '変更する' }).waitFor({ timeout: 5000 }).then(() => true).catch(() => false));
+  // メンバーの権限 (既定はどちらもオン) → 招待だけオフにして保存
+  const inviteAllSwitch = page.getByRole('switch', { name: 'メンバー全員が招待できる' });
+  check(`${label}: 編集画面のメンバー権限は既定でオン`, (await inviteAllSwitch.isChecked()) && (await page.getByRole('switch', { name: 'メンバー全員がカバー画像を変更できる' }).isChecked()));
+  await page.screenshot({ path: `${OUT}/${label}-05e-edit.png`, fullPage: true });
+  await inviteAllSwitch.click({ force: true });
+  await page.getByRole('button', { name: '保存する' }).click();
+  await page.waitForURL(new RegExp(`/albums/${ALBUM_ID}$`), { timeout: 5000 }).catch(() => undefined);
+  check(`${label}: メンバー全員の招待をオフにして保存`, mock.state.albumPatches?.some((b) => b.members_can_invite === false && b.members_can_change_cover === true), JSON.stringify(mock.state.albumPatches));
   await page.goto(`${BASE}/albums/${ALBUM_ID}`);
   await page.locator('a[href*="/photos/"]').first().waitFor();
 
@@ -676,24 +694,35 @@ for (const [label, device] of [
   }
 
   // メンバーの視点: 招待の権限あり / なし
-  for (const canInvite of [true, false]) {
+  for (const { canInvite, inviteAll, coverAll } of [
+    { canInvite: false, inviteAll: true, coverAll: true }, // 既定: メンバー全員が招待・カバー変更できる
+    { canInvite: true, inviteAll: false, coverAll: false }, // 全体はオフ、個別に招待の権限あり
+    { canInvite: false, inviteAll: false, coverAll: false }, // どちらもなし
+  ]) {
+    const allowed = inviteAll || canInvite;
     const mctx = await browser.newContext({ ...device });
-    const mmock = createMock({ memberView: { canInvite } });
+    const mmock = createMock({ memberView: { canInvite, inviteAll, coverAll } });
     mmock.setThumb(thumb);
     await mctx.route(`${SB}/**`, mmock.handler);
     await mctx.addInitScript((s) => localStorage.setItem('sb-mock-auth-token', JSON.stringify(s)), session);
     const mpage = await mctx.newPage();
     await mpage.goto(`${BASE}/albums/${ALBUM_ID}/invite`);
-    const ok = canInvite
+    const ok = allowed
       ? await mpage.getByRole('button', { name: '招待リンクを作成' }).waitFor({ timeout: 5000 }).then(() => true).catch(() => false)
       : await mpage.getByText('招待する権限がありません').waitFor({ timeout: 5000 }).then(() => true).catch(() => false);
-    check(`${label}: 招待の権限${canInvite ? 'がある' : 'がない'}メンバーの招待画面`, ok);
+    const caseLabel = inviteAll ? 'メンバー全員に許可' : canInvite ? '個別に許可' : '許可なし';
+    check(`${label}: 招待画面 (${caseLabel})`, ok);
     await mpage.goto(`${BASE}/albums/${ALBUM_ID}/members`);
     await mpage.getByRole('heading', { name: 'メンバー', exact: true }).waitFor();
     await mpage.waitForTimeout(300);
     const hasInviteBtn = (await mpage.getByRole('button', { name: 'メンバーを招待' }).count()) > 0;
     const hasSwitch = (await mpage.getByRole('switch').count()) > 0;
-    check(`${label}: メンバー画面の招待ボタン (${canInvite ? 'あり' : 'なし'})・権限スイッチは非表示`, hasInviteBtn === canInvite && !hasSwitch);
+    check(`${label}: メンバー画面の招待ボタン (${caseLabel})・権限スイッチは非表示`, hasInviteBtn === allowed && !hasSwitch);
+    await mpage.goto(`${BASE}/albums/${ALBUM_ID}`);
+    await mpage.getByRole('button', { name: 'メニュー' }).click();
+    await mpage.getByRole('link', { name: '写真・動画を追加', exact: true }).waitFor();
+    const coverItem = (await mpage.getByRole('button', { name: 'カバー画像を変更' }).count()) > 0;
+    check(`${label}: メンバーのカバー変更メニュー (${coverAll ? '許可' : '不可'})`, coverItem === coverAll);
     await mctx.close();
   }
 

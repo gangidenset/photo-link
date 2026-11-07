@@ -128,7 +128,7 @@ export function MembersPage() {
                     <>
                       <Crown className="size-3" /> オーナー
                     </>
-                  ) : m.can_invite ? (
+                  ) : m.can_invite && !album?.members_can_invite ? (
                     <>
                       <UserPlus className="size-3" /> メンバー ・ 招待できる
                     </>
@@ -137,7 +137,7 @@ export function MembersPage() {
                   )}
                 </p>
               </div>
-              {isOwner && m.role !== 'owner' && (
+              {isOwner && m.role !== 'owner' && !album?.members_can_invite && (
                 <label className="flex shrink-0 cursor-pointer flex-col items-center gap-0.5 text-[10px] text-ink-3">
                   <input
                     type="checkbox"
@@ -173,7 +173,12 @@ export function MembersPage() {
         </ul>
 
         {isOwner && members && members.length > 1 && (
-          <p className="px-safe mt-3 text-xs text-ink-3">「招待」をオンにしたメンバーは、招待リンクを作って他の人を招待できます。メンバーの除外や参加リクエストの承認はオーナーだけができます。</p>
+          <p className="px-safe mt-3 text-xs text-ink-3">
+            {album?.members_can_invite
+              ? 'メンバー全員が招待できます。特定の人だけに限定したい場合は、「アルバムを編集」で「メンバー全員が招待できる」をオフにしてください。'
+              : '「招待」をオンにしたメンバーは、招待リンクを作って他の人を招待できます。'}
+            メンバーの除外や参加リクエストの承認はオーナーだけができます。
+          </p>
         )}
 
         <div className="px-safe mt-8 space-y-3">

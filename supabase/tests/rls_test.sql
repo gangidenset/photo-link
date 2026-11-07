@@ -138,6 +138,17 @@ select pg_temp.assert(
   (public.get_invitation_preview(null, (select v from public.t where k = 'inv2')) ->> 'state') = 'revoked',
   'revoked invitation reported');
 
+-- ---------------------------------------------------------------- アルバム全体の許可 (既定: メンバー全員が招待・カバー変更できる)
+select pg_temp.login('B');
+insert into public.t select 'b_default_inv', (public.create_invitation((select v::uuid from public.t where k = 'album'))).id::text;
+select pg_temp.assert((select count(*) from public.invitations where id = (select v::uuid from public.t where k = 'b_default_inv')) = 1, 'any member can invite by default');
+update public.albums set members_can_invite = false;
+select pg_temp.assert((select members_can_invite from public.albums), 'member cannot change album permission settings');
+
+select pg_temp.login('A');
+update public.albums set members_can_invite = false;
+select pg_temp.assert((select revoked_at is not null from public.invitations where id = (select v::uuid from public.t where k = 'b_default_inv')), 'turning off member invites revokes their invitations');
+
 -- ---------------------------------------------------------------- 招待の権限 (メンバーへの付与)
 select pg_temp.login('B');
 do $$ begin
@@ -161,7 +172,7 @@ select pg_temp.login('B');
 select pg_temp.assert((select count(*) from public.notifications where type = 'invite_permission_granted') = 1, 'member notified of invite permission');
 select pg_temp.assert((select can_invite from public.album_members where user_id = '00000000-0000-0000-0000-00000000000b'), 'permission visible to members');
 insert into public.t select 'b_inv', (public.create_invitation((select v::uuid from public.t where k = 'album'))).id::text;
-select pg_temp.assert((select count(*) from public.invitations) = 1, 'permitted member sees only own invitations');
+select pg_temp.assert((select count(*) from public.invitations) >= 1 and (select count(*) from public.invitations where created_by <> '00000000-0000-0000-0000-00000000000b') = 0, 'permitted member sees only own invitations');
 do $$ begin
   perform public.revoke_invitation((select id from public.invitations where token = (select v from public.t where k = 'inv')));
   raise exception 'should fail';
@@ -174,7 +185,7 @@ select pg_temp.assert((select revoked_at is not null from public.invitations whe
 insert into public.t select 'b_inv2', (public.create_invitation((select v::uuid from public.t where k = 'album'))).id::text;
 
 select pg_temp.login('A');
-select pg_temp.assert((select count(*) from public.invitations where created_by = '00000000-0000-0000-0000-00000000000b') = 2, 'owner sees member invitations');
+select pg_temp.assert((select count(*) from public.invitations where created_by = '00000000-0000-0000-0000-00000000000b') = 3, 'owner sees member invitations');
 select public.set_member_can_invite((select v::uuid from public.t where k = 'album'), '00000000-0000-0000-0000-00000000000b', false);
 select pg_temp.assert((select revoked_at is not null from public.invitations where id = (select v::uuid from public.t where k = 'b_inv2')), 'revoking permission revokes member invitations');
 select pg_temp.login('B');
@@ -264,6 +275,29 @@ select pg_temp.login('A');
 select pg_temp.assert((select count(*) from public.photos) = 1, 'owner sees ready photo');
 select pg_temp.assert((select photo_count from public.albums) = 1, 'photo_count updated');
 select pg_temp.assert((select cover_photo_id is not null from public.albums), 'cover auto-set');
+-- メンバーもカバーを変更できる (既定) / オーナーが禁止したら不可
+select pg_temp.login('D');
+select public.set_album_cover((select v::uuid from public.t where k = 'album'), (select id from public.photos limit 1));
+select pg_temp.assert(true, 'member can change cover by default');
+select pg_temp.login('A');
+update public.albums set members_can_change_cover = false;
+select pg_temp.login('D');
+do $$ begin
+  perform public.set_album_cover((select v::uuid from public.t where k = 'album'), (select id from public.photos limit 1));
+  raise exception 'should fail';
+exception when others then
+  if sqlerrm <> 'forbidden' then raise; end if;
+end $$;
+select pg_temp.assert(true, 'member cannot change cover when disabled');
+select pg_temp.login('C');
+do $$ begin
+  perform public.set_album_cover((select v::uuid from public.t where k = 'album'), (select id from public.photos limit 1));
+  raise exception 'should fail';
+exception when others then
+  if sqlerrm <> 'forbidden' then raise; end if;
+end $$;
+select pg_temp.assert(true, 'outsider cannot change cover');
+select pg_temp.login('A');
 select pg_temp.assert((select count(*) from storage.objects) = 2, 'member can read storage objects');
 select pg_temp.assert((select (data ->> 'count')::int from public.notifications where type = 'photo_added') = 1, 'photo notification');
 
