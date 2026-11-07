@@ -1,18 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { CheckSquare, Download, ImagePlus, Images, MoreHorizontal, Pencil, Plus, Share, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { CheckSquare, Download, ImagePlus, Images, MoreHorizontal, Pencil, Plus, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { deletePhotos, useAlbumPhotos } from '@/features/photos/api';
+import { deletePhotos, fetchOthersPhotos, useAlbumPhotos, useDownloadedIds } from '@/features/photos/api';
 import { PhotoGrid } from '@/features/photos/PhotoGrid';
-import {
-  BULK_DOWNLOAD_MAX,
-  bulkMethod,
-  downloadSequential,
-  fetchFiles,
-  saveZip,
-  shareFiles,
-  zipNameFor,
-} from '@/features/photos/bulkDownload';
+import { BulkSaveSheet } from '@/features/photos/BulkSaveSheet';
 import { hasFeature } from '@/lib/features';
 import { toMessage } from '@/lib/errors';
 import { formatRelative } from '@/lib/format';
@@ -131,6 +123,8 @@ export function AlbumFormPage() {
   );
 }
 
+const EMPTY_SET: Set<string> = new Set();
+
 // ---------------------------------------------------------------- アルバム詳細
 export function AlbumDetailPage() {
   const { albumId } = useParams();
@@ -146,9 +140,10 @@ export function AlbumDetailPage() {
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  // 一括保存: 進捗表示と、iPhone で共有シートを開く前の準備済みファイル
-  const [saving, setSaving] = useState<{ done: number; total: number } | null>(null);
-  const [preparedFiles, setPreparedFiles] = useState<File[] | null>(null);
+  // 一括保存のシート (選択した写真 / 他のメンバーの写真)
+  const [saveTarget, setSaveTarget] = useState<{ title: string; photos: PhotoWithUploader[]; autoStart: boolean } | null>(null);
+  const [loadingOthers, setLoadingOthers] = useState(false);
+  const { data: savedIds = EMPTY_SET } = useDownloadedIds(albumId);
   const { data: usage } = useMyUsage();
   const canBulkSave = hasFeature(usage?.plan, 'bulk_download');
   const navigate = useNavigate();
@@ -166,7 +161,6 @@ export function AlbumDetailPage() {
   const exitSelection = useCallback(() => {
     setSelecting(false);
     setSelected(new Set());
-    setPreparedFiles(null);
   }, []);
   const toggle = useCallback((p: PhotoWithUploader) => {
     setSelected((prev) => {
@@ -210,42 +204,23 @@ export function AlbumDetailPage() {
       </>
     );
 
-  async function onBulkSave() {
-    if (!album || selectedPhotos.length === 0) return;
-    if (selectedPhotos.length > BULK_DOWNLOAD_MAX) {
-      toast(`一度に保存できるのは ${BULK_DOWNLOAD_MAX} 件までです`, 'error');
-      return;
-    }
-    const method = bulkMethod(selectedPhotos);
-    const onProgress = (done: number, total: number) => setSaving({ done, total });
+  function onBulkSave() {
+    if (selectedPhotos.length === 0) return;
+    setSaveTarget({ title: `選択した ${selectedPhotos.length} 件を保存`, photos: selectedPhotos, autoStart: true });
+  }
+
+  async function onSaveOthers() {
+    if (!album || !userId) return;
+    setMenuOpen(false);
+    setLoadingOthers(true);
     try {
-      if (method === 'sequential') {
-        await downloadSequential(selectedPhotos, onProgress);
-        toast(`${selectedPhotos.length} 件のダウンロードを開始しました`);
-        exitSelection();
-      } else {
-        const files = await fetchFiles(selectedPhotos, onProgress);
-        if (method === 'share') {
-          setPreparedFiles(files); // 次のタップで共有シートを開く
-        } else {
-          await saveZip(files, zipNameFor(album.title));
-          toast(`${files.length} 件を ZIP で保存しました`);
-          exitSelection();
-        }
-      }
+      const others = await fetchOthersPhotos(album.id, userId);
+      setSaveTarget({ title: '他のメンバーの写真を保存', photos: others, autoStart: false });
     } catch (e) {
       toast(toMessage(e), 'error');
     } finally {
-      setSaving(null);
+      setLoadingOthers(false);
     }
-  }
-
-  async function onShareFiles() {
-    if (!album || !preparedFiles) return;
-    const result = await shareFiles(preparedFiles, zipNameFor(album.title));
-    if (result === 'canceled') return;
-    toast(result === 'shared' ? '共有シートを開きました' : `${preparedFiles.length} 件を ZIP で保存しました`);
-    exitSelection();
   }
 
   async function onBulkDelete() {
@@ -383,7 +358,7 @@ export function AlbumDetailPage() {
             loadingMore={isFetchingNextPage}
             onLoadMore={loadMore}
             query={by ? `?by=${by}` : ''}
-            selection={selecting ? { selected, canSelect, onToggle: toggle } : null}
+            selection={selecting ? { selected, canSelect, onToggle: toggle, savedIds } : null}
             onLongPress={startSelection}
           />
         )}
@@ -392,23 +367,7 @@ export function AlbumDetailPage() {
       {selecting && (
         <div className="bottom-nav-offset px-safe fixed inset-x-0 z-30 flex justify-center">
           <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-3 shadow-lg">
-            {preparedFiles ? (
-              // iPhone: 準備完了後、タップで共有シート (「N 枚の画像を保存」で写真アプリへ)
-              <Button block onClick={onShareFiles}>
-                <Share className="size-5" />
-                {preparedFiles.length} 件を保存・共有する
-              </Button>
-            ) : saving ? (
-              <div className="flex items-center gap-3 px-1 py-2">
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
-                  <div className="h-full bg-accent transition-[width]" style={{ width: `${(saving.done / Math.max(saving.total, 1)) * 100}%` }} />
-                </div>
-                <span className="shrink-0 text-sm text-ink-2 tabular-nums">
-                  準備中 {saving.done}/{saving.total}
-                </span>
-              </div>
-            ) : (
-              <div className="flex gap-2">
+            <div className="flex gap-2">
                 {canBulkSave && (
                   <Button className="flex-1" size="sm" disabled={selected.size === 0} onClick={onBulkSave}>
                     <Download className="size-4" />
@@ -428,14 +387,21 @@ export function AlbumDetailPage() {
                     {selectedDeletable.length > 0 ? `${selectedDeletable.length} 件を削除` : '削除'}
                   </Button>
                 )}
-              </div>
-            )}
-            {!preparedFiles && !saving && selected.size > BULK_DOWNLOAD_MAX && (
-              <p className="mt-2 px-1 text-xs text-danger">一度に保存できるのは {BULK_DOWNLOAD_MAX} 件までです</p>
-            )}
+            </div>
           </div>
         </div>
       )}
+
+      <BulkSaveSheet
+        open={!!saveTarget}
+        onClose={() => setSaveTarget(null)}
+        title={saveTarget?.title ?? ''}
+        albumTitle={album.title}
+        photos={saveTarget?.photos ?? []}
+        savedIds={savedIds}
+        autoStart={saveTarget?.autoStart}
+        onFinished={exitSelection}
+      />
 
       <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title={album.title}>
         <div className="pb-3">
@@ -454,6 +420,11 @@ export function AlbumDetailPage() {
               }}
             >
               写真を選択 (保存・削除)
+            </SheetItem>
+          )}
+          {canBulkSave && album.photo_count > 0 && (
+            <SheetItem icon={<Download className="size-5" />} onClick={() => void onSaveOthers()}>
+              {loadingOthers ? '読み込み中…' : '他のメンバーの写真を保存'}
             </SheetItem>
           )}
           {isOwner && (

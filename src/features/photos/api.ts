@@ -110,3 +110,58 @@ export async function deletePhotos(photos: PhotoWithUploader[]): Promise<number>
   void queryClient.invalidateQueries({ queryKey: ['usage'] });
   return deleted;
 }
+
+// ---------------------------------------------------------------- 保存済みの記録 (重複保存の確認用)
+export function useDownloadedIds(albumId: string | undefined) {
+  return useQuery({
+    queryKey: ['downloads', albumId],
+    enabled: !!albumId,
+    queryFn: async () => {
+      const ids = new Set<string>();
+      const PAGE = 1000;
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await supabase
+          .from('photo_downloads')
+          .select('photo_id')
+          .eq('album_id', albumId!)
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        data?.forEach((r) => ids.add(r.photo_id as string));
+        if (!data || data.length < PAGE) break;
+      }
+      return ids;
+    },
+  });
+}
+
+/** 保存した写真を記録 (失敗しても保存自体は成功しているため、エラーは握りつぶして警告のみ) */
+export async function markDownloaded(photos: Pick<PhotoWithUploader, 'id' | 'album_id'>[]) {
+  for (let i = 0; i < photos.length; i += 500) {
+    const { error } = await supabase.rpc('mark_photos_downloaded', { p_photo_ids: photos.slice(i, i + 500).map((p) => p.id) });
+    if (error) console.warn('mark downloaded failed', error);
+  }
+  for (const albumId of new Set(photos.map((p) => p.album_id))) {
+    void queryClient.invalidateQueries({ queryKey: ['downloads', albumId] });
+  }
+}
+
+/** アルバム内の「自分以外が投稿した」写真をすべて取得 (画面に読み込み済みかどうかに関係なく) */
+export async function fetchOthersPhotos(albumId: string, userId: string): Promise<PhotoWithUploader[]> {
+  const all: PhotoWithUploader[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from('photos')
+      .select(PHOTO_SELECT)
+      .eq('album_id', albumId)
+      .eq('status', 'ready')
+      .neq('uploader_id', userId)
+      .order('sort_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    all.push(...((data ?? []) as unknown as PhotoWithUploader[]));
+    if (!data || data.length < PAGE) break;
+  }
+  return all;
+}

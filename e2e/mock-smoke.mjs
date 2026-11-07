@@ -110,6 +110,13 @@ function createMock({ failFirstUploadsFor = null } = {}) {
       if (method === 'PATCH') return json([]);
       return json(notifications);
     }
+    if (path === '/rest/v1/photo_downloads') return json([...(state.marked ?? new Set())].map((id) => ({ photo_id: id })));
+    if (path === '/rest/v1/rpc/mark_photos_downloaded') {
+      const ids = req.postDataJSON().p_photo_ids;
+      state.marked ??= new Set();
+      ids.forEach((id) => state.marked.add(id));
+      return json(ids.length);
+    }
     if (path === '/rest/v1/comments' || path === '/rest/v1/reactions' || path === '/rest/v1/join_requests' || path === '/rest/v1/invitations') return json([]);
     if (path === '/rest/v1/photos' && method === 'DELETE') {
       const ids = (url.searchParams.get('id') ?? '').replace(/^in\.\(|\)$/g, '').split(',').filter(Boolean);
@@ -123,7 +130,8 @@ function createMock({ failFirstUploadsFor = null } = {}) {
     if (path === '/rest/v1/photos') {
       const id = url.searchParams.get('id')?.replace('eq.', '');
       if (id) return json(single ? (photos.find((p) => p.id === id) ?? null) : photos.filter((p) => p.id === id));
-      const filtered = url.searchParams.get('uploader_id') ? photos.filter((p) => `eq.${p.uploader_id}` === url.searchParams.get('uploader_id')) : photos;
+      const up = url.searchParams.get('uploader_id');
+      const filtered = !up ? photos : up.startsWith('neq.') ? photos.filter((p) => `neq.${p.uploader_id}` !== up) : photos.filter((p) => `eq.${p.uploader_id}` === up);
       // 1 ページ目のみ返す (60 件) / 2 ページ目以降は残り
       const isNext = url.searchParams.has('or');
       return json(isNext ? filtered.slice(60) : filtered.slice(0, 60));
@@ -367,21 +375,42 @@ for (const [label, device] of [
   await page.getByRole('button', { name: '選択を解除' }).click();
 
   // 一括保存 (iPhone エミュレーションは共有シート非対応のため ZIP、Android は 1 件ずつダウンロード)
+  const downloads = [];
+  page.on('download', async (d) => downloads.push({ name: d.suggestedFilename(), path: await d.path().catch(() => null) }));
   for (const i of [0, 1, 2]) await page.getByRole('checkbox').nth(i).click();
+  await page.getByRole('button', { name: '3 件を保存' }).click();
+  await page.getByText('3 件を保存しました').waitFor({ timeout: 20000 }).catch(() => undefined);
+  await page.waitForTimeout(500);
   if (label === 'iPhone') {
-    const [download] = await Promise.all([page.waitForEvent('download', { timeout: 15000 }), page.getByRole('button', { name: '3 件を保存' }).click()]);
-    const zipPath = await download.path();
-    const entries = Object.keys(unzipSync(fs.readFileSync(zipPath)));
-    check(`${label}: 3 件を ZIP でまとめて保存`, download.suggestedFilename().endsWith('.zip') && entries.length === 3, `${download.suggestedFilename()} [${entries.join(', ')}]`);
+    const zip = downloads.find((d) => d.name.endsWith('.zip'));
+    const entries = zip?.path ? Object.keys(unzipSync(fs.readFileSync(zip.path))) : [];
+    check(`${label}: 選択した 3 件を ZIP でまとめて保存`, entries.length === 3, `${zip?.name} [${entries.join(', ')}]`);
   } else {
-    const downloads = [];
-    page.on('download', (d) => downloads.push(d.suggestedFilename()));
-    await page.getByRole('button', { name: '3 件を保存' }).click();
-    await page.getByText('3 件のダウンロードを開始しました').waitFor({ timeout: 15000 }).catch(() => undefined);
-    await page.waitForTimeout(1000);
-    check(`${label}: 3 件を 1 件ずつダウンロード`, downloads.length === 3, downloads.join(', '));
+    check(`${label}: 選択した 3 件を 1 件ずつダウンロード`, downloads.length === 3, downloads.map((d) => d.name).join(', '));
   }
+  check(`${label}: 保存した写真を記録`, mock.state.marked?.size === 3, [...(mock.state.marked ?? [])].join(','));
+  await page.getByRole('button', { name: '閉じる' }).click();
   check(`${label}: 保存後は選択モードを終了`, (await page.getByRole('checkbox').count()) === 0);
+
+  // 他のメンバーの写真をまとめて保存 (保存済みの 1 件は除外を選ぶ)
+  const others = photos.filter((p) => p.uploader_id !== USER_ID);
+  const alreadySaved = others.filter((p) => mock.state.marked.has(p.id)).length;
+  downloads.length = 0;
+  await page.getByRole('button', { name: 'メニュー' }).click();
+  await page.getByRole('button', { name: '他のメンバーの写真を保存' }).click();
+  const onlyUnsaved = page.getByRole('button', { name: `未保存の ${others.length - alreadySaved} 件だけ保存` });
+  await onlyUnsaved.waitFor({ timeout: 5000 }).catch(() => undefined);
+  await page.screenshot({ path: `${OUT}/${label}-05c-save-others.png` });
+  check(`${label}: 他のメンバーの写真で保存済みを確認表示`, (await onlyUnsaved.count()) === 1 && (await page.getByText(`${alreadySaved} 件は以前に保存しています`).count()) === 1, `others=${others.length} saved=${alreadySaved}`);
+  await onlyUnsaved.click();
+  await page.getByText(`${others.length - alreadySaved} 件を保存しました`).waitFor({ timeout: 60000 }).catch(() => undefined);
+  await page.waitForTimeout(500);
+  const savedNow = label === 'iPhone'
+    ? (() => { const z = downloads.find((d) => d.name.endsWith('.zip')); return z?.path ? Object.keys(unzipSync(fs.readFileSync(z.path))).length : 0; })()
+    : downloads.length;
+  check(`${label}: 未保存の ${others.length - alreadySaved} 件だけ保存 (重複なし)`, savedNow === others.length - alreadySaved, `saved=${savedNow}`);
+  check(`${label}: 他のメンバーの写真をすべて記録`, others.every((p) => mock.state.marked.has(p.id)));
+  await page.getByRole('button', { name: '閉じる' }).click();
 
   // ビューア + スワイプ
   await page.goto(`${BASE}/albums/${ALBUM_ID}/photos/p-1`);

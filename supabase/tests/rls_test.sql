@@ -243,6 +243,25 @@ exception when others then
 end $$;
 select pg_temp.assert(true, 'outsider cannot comment');
 
+-- ---------------------------------------------------------------- 保存済みの記録
+select pg_temp.login('B');
+select pg_temp.assert(public.mark_photos_downloaded(array(select id from public.photos)) = 1, 'member can mark photo as downloaded');
+select pg_temp.assert(public.mark_photos_downloaded(array(select id from public.photos)) = 1, 'marking again updates instead of duplicating');
+select pg_temp.assert((select count(*) from public.photo_downloads) = 1, 'member sees own download record');
+select pg_temp.login('A');
+select pg_temp.assert((select count(*) from public.photo_downloads) = 0, 'others cannot see download records');
+select pg_temp.login('C');
+select pg_temp.assert(
+  public.mark_photos_downloaded(array(select (v::jsonb ->> 'id')::uuid from public.t where k = 'up')) = 0,
+  'outsider cannot mark photos of other albums');
+do $$ begin
+  insert into public.photo_downloads (user_id, photo_id, album_id)
+  select '00000000-0000-0000-0000-00000000000c', (v::jsonb ->> 'id')::uuid, (select v::uuid from public.t where k = 'album') from public.t where k = 'up';
+  raise exception 'should fail';
+exception when insufficient_privilege then null;
+end $$;
+select pg_temp.assert(true, 'download records cannot be inserted directly');
+
 -- B は A のコメントを削除できない (RLS により 0 件)
 select pg_temp.login('B');
 delete from public.comments;
