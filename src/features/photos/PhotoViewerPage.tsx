@@ -10,7 +10,7 @@ import { formatBytes, formatDateTime, formatDuration } from '@/lib/format';
 import type { PhotoWithUploader } from '@/types/db';
 import { Avatar, Button, IconButton, Sheet, SheetItem, Spinner } from '@/components/ui';
 import { toast } from '@/components/toast';
-import { deletePhoto, useAlbumPhotos, usePhoto } from './api';
+import { deletePhoto, markDownloaded, useAlbumPhotos, useDownloadedIds, usePhoto } from './api';
 import { directDownload, fetchOriginalFile, prefersShareSheet, shareFile } from './download';
 import { useGestures } from './useGestures';
 
@@ -44,6 +44,7 @@ export function PhotoViewerPage() {
   const [preparedFile, setPreparedFile] = useState<File | null>(null);
   const [downloading, setDownloading] = useState(false);
   const { data: comments = [] } = useComments(photo?.id);
+  const { data: savedIds } = useDownloadedIds(albumId);
 
   const query = by ? `?by=${by}` : '';
   const go = useCallback(
@@ -96,12 +97,15 @@ export function PhotoViewerPage() {
   async function onDownload() {
     if (!photo) return;
     setMenuOpen(false);
+    // 重複保存の確認
+    if (savedIds?.has(photo.id) && !window.confirm('この写真は以前に保存しています。もう一度保存しますか？')) return;
     setDownloading(true);
     try {
       if (prefersShareSheet(photo)) {
         setPreparedFile(await fetchOriginalFile(photo)); // 次のタップで共有シートを開く
       } else {
         await directDownload(photo);
+        await markDownloaded([photo]);
       }
     } catch (e) {
       toast(toMessage(e), 'error');
@@ -221,7 +225,10 @@ export function PhotoViewerPage() {
             className="shadow-xl"
             onClick={async () => {
               const r = await shareFile(preparedFile);
-              if (r !== 'canceled') setPreparedFile(null);
+              if (r !== 'canceled') {
+                setPreparedFile(null);
+                if (photo) await markDownloaded([photo]);
+              }
             }}
           >
             <Share className="size-5" />

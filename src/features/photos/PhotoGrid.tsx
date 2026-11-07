@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ImageOff, Play } from 'lucide-react';
+import { Check, Download, ImageOff, Play } from 'lucide-react';
 import { useSignedUrl } from '@/lib/signedUrls';
 import { formatDuration, formatMonth, monthKey } from '@/lib/format';
 import type { Photo, PhotoWithUploader } from '@/types/db';
@@ -39,6 +39,8 @@ interface Props {
     selected: Set<string>;
     canSelect: (p: PhotoWithUploader) => boolean;
     onToggle: (p: PhotoWithUploader) => void;
+    /** 保存済みの写真 (選択時に印を表示) */
+    savedIds?: Set<string>;
   } | null;
   /** 長押しで選択モードを開始 */
   onLongPress?: (p: PhotoWithUploader) => void;
@@ -97,13 +99,14 @@ export function PhotoGrid({ photos, albumId, hasMore, loadingMore, onLoadMore, q
               if (selection) {
                 const selectable = selection.canSelect(p);
                 const checked = selection.selected.has(p.id);
+                const saved = selection.savedIds?.has(p.id) ?? false;
                 return (
                   <button
                     key={p.id}
                     type="button"
                     role="checkbox"
                     aria-checked={checked}
-                    aria-label={selectable ? label : `${label} (削除できません)`}
+                    aria-label={`${label}${saved ? ' (保存済み)' : ''}${selectable ? '' : ' (選択できません)'}`}
                     disabled={!selectable}
                     onClick={() => selection.onToggle(p)}
                     className="relative block aspect-square disabled:opacity-35"
@@ -116,6 +119,12 @@ export function PhotoGrid({ photos, albumId, hasMore, loadingMore, onLoadMore, q
                         }`}
                       >
                         {checked && <Check className="size-4" strokeWidth={3} />}
+                      </span>
+                    )}
+                    {saved && (
+                      <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                        <Download className="size-3" />
+                        保存済み
                       </span>
                     )}
                   </button>

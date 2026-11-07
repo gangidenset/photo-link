@@ -39,6 +39,7 @@ PhotoLink を実際に動かすには、以下の作業を**ご自身のアカ�
    4. `20261106000004_notifications.sql`
    5. `20261106000005_storage.sql`
    6. `20261107000001_fix_album_select_policy.sql`
+   7. `20261107000002_photo_downloads.sql`
 3. それぞれ「Success. No rows returned」と出れば成功
 4. スマホでは長いファイルがコピーしきれないことがあります。その場合は 3 番の代わりに
    `supabase/mobile/03a_functions.sql` → `03b` → `03c` を順に実行してください (内容は同じです)

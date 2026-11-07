@@ -53,7 +53,7 @@ export async function directDownload(photo: Photo): Promise<void> {
   triggerDownload(url, name);
 }
 
-function triggerDownload(href: string, name: string) {
+export function triggerDownload(href: string, name: string) {
   const a = document.createElement('a');
   a.href = href;
   a.download = name;

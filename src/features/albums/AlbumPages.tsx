@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { CheckSquare, ImagePlus, Images, MoreHorizontal, Pencil, Plus, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { CheckSquare, Download, ImagePlus, Images, MoreHorizontal, Pencil, Plus, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { deletePhotos, useAlbumPhotos } from '@/features/photos/api';
+import { deletePhotos, fetchOthersPhotos, useAlbumPhotos, useDownloadedIds } from '@/features/photos/api';
 import { PhotoGrid } from '@/features/photos/PhotoGrid';
+import { BulkSaveSheet } from '@/features/photos/BulkSaveSheet';
+import { hasFeature } from '@/lib/features';
 import { toMessage } from '@/lib/errors';
 import { formatRelative } from '@/lib/format';
 import type { PhotoWithUploader } from '@/types/db';
@@ -22,7 +24,7 @@ import {
 } from '@/components/ui';
 import { toast } from '@/components/toast';
 import { AlbumCover } from './AlbumCover';
-import { deleteAlbum, useAlbum, useAlbums, useMembers, useSaveAlbum } from './api';
+import { deleteAlbum, useAlbum, useAlbums, useMembers, useMyUsage, useSaveAlbum } from './api';
 
 // ---------------------------------------------------------------- アルバム一覧
 export function AlbumsPage() {
@@ -121,6 +123,8 @@ export function AlbumFormPage() {
   );
 }
 
+const EMPTY_SET: Set<string> = new Set();
+
 // ---------------------------------------------------------------- アルバム詳細
 export function AlbumDetailPage() {
   const { albumId } = useParams();
@@ -136,6 +140,12 @@ export function AlbumDetailPage() {
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  // 一括保存のシート (選択した写真 / 他のメンバーの写真)
+  const [saveTarget, setSaveTarget] = useState<{ title: string; photos: PhotoWithUploader[]; autoStart: boolean } | null>(null);
+  const [loadingOthers, setLoadingOthers] = useState(false);
+  const { data: savedIds = EMPTY_SET } = useDownloadedIds(albumId);
+  const { data: usage } = useMyUsage();
+  const canBulkSave = hasFeature(usage?.plan, 'bulk_download');
   const navigate = useNavigate();
   const isOwner = album?.owner_id === userId;
 
@@ -143,6 +153,10 @@ export function AlbumDetailPage() {
   // オーナーは全員の写真、メンバーは自分の写真だけ削除できる (DB 側でも同じ制限)
   const canDelete = useCallback((p: PhotoWithUploader) => isOwner || p.uploader_id === userId, [isOwner, userId]);
   const deletable = useMemo(() => list.filter(canDelete), [list, canDelete]);
+  const selectedPhotos = useMemo(() => list.filter((p) => selected.has(p.id)), [list, selected]);
+  const selectedDeletable = useMemo(() => selectedPhotos.filter(canDelete), [selectedPhotos, canDelete]);
+  // 保存はどの写真でもできるため、選択は全員の写真が対象
+  const canSelect = useCallback(() => true, []);
 
   const exitSelection = useCallback(() => {
     setSelecting(false);
@@ -159,9 +173,9 @@ export function AlbumDetailPage() {
   const startSelection = useCallback(
     (p?: PhotoWithUploader) => {
       setSelecting(true);
-      setSelected(p && canDelete(p) ? new Set([p.id]) : new Set());
+      setSelected(p ? new Set([p.id]) : new Set());
     },
-    [canDelete],
+    [],
   );
 
   // 絞り込みを変えたら選択を解除 / 戻るボタン (Esc) で選択モードを終了
@@ -190,10 +204,35 @@ export function AlbumDetailPage() {
       </>
     );
 
+  function onBulkSave() {
+    if (selectedPhotos.length === 0) return;
+    setSaveTarget({ title: `選択した ${selectedPhotos.length} 件を保存`, photos: selectedPhotos, autoStart: true });
+  }
+
+  async function onSaveOthers() {
+    if (!album || !userId) return;
+    setMenuOpen(false);
+    setLoadingOthers(true);
+    try {
+      const others = await fetchOthersPhotos(album.id, userId);
+      setSaveTarget({ title: '他のメンバーの写真を保存', photos: others, autoStart: false });
+    } catch (e) {
+      toast(toMessage(e), 'error');
+    } finally {
+      setLoadingOthers(false);
+    }
+  }
+
   async function onBulkDelete() {
-    const targets = list.filter((p) => selected.has(p.id) && canDelete(p));
+    const targets = selectedDeletable;
     if (targets.length === 0) return;
-    if (!window.confirm(`選択した ${targets.length} 件を削除しますか？\n元に戻せません。`)) return;
+    const skipped = selectedPhotos.length - targets.length;
+    if (
+      !window.confirm(
+        `${targets.length} 件を削除しますか？\n元に戻せません。${skipped > 0 ? `\n(他の人が投稿した ${skipped} 件は削除されません)` : ''}`,
+      )
+    )
+      return;
     setBulkDeleting(true);
     try {
       const count = await deletePhotos(targets);
@@ -224,16 +263,14 @@ export function AlbumDetailPage() {
     <>
       {selecting ? (
         <PageHeader
-          title={selected.size > 0 ? `${selected.size} 件を選択中` : '削除する写真を選択'}
+          title={selected.size > 0 ? `${selected.size} 件を選択中` : '写真を選択'}
           actions={
             <>
               <button
                 className="min-h-11 rounded-full px-3 text-sm font-semibold text-accent"
-                onClick={() =>
-                  setSelected(selected.size === deletable.length && deletable.length > 0 ? new Set() : new Set(deletable.map((p) => p.id)))
-                }
+                onClick={() => setSelected(selected.size === list.length && list.length > 0 ? new Set() : new Set(list.map((p) => p.id)))}
               >
-                {selected.size === deletable.length && deletable.length > 0 ? '選択を解除' : 'すべて選択'}
+                {selected.size === list.length && list.length > 0 ? '選択を解除' : 'すべて選択'}
               </button>
               <IconButton label="選択をやめる" onClick={exitSelection}>
                 <X className="size-5" />
@@ -321,25 +358,50 @@ export function AlbumDetailPage() {
             loadingMore={isFetchingNextPage}
             onLoadMore={loadMore}
             query={by ? `?by=${by}` : ''}
-            selection={selecting ? { selected, canSelect: canDelete, onToggle: toggle } : null}
-            onLongPress={deletable.length > 0 ? startSelection : undefined}
+            selection={selecting ? { selected, canSelect, onToggle: toggle, savedIds } : null}
+            onLongPress={startSelection}
           />
         )}
       </main>
 
       {selecting && (
         <div className="bottom-nav-offset px-safe fixed inset-x-0 z-30 flex justify-center">
-          <div className="flex w-full max-w-md items-center gap-3 rounded-2xl border border-line bg-surface p-3 shadow-lg">
-            <p className="min-w-0 flex-1 pl-1 text-sm text-ink-2">
-              {isOwner ? 'アルバム内の写真を削除できます' : '自分が投稿した写真だけ削除できます'}
-            </p>
-            <Button variant="danger" size="sm" disabled={selected.size === 0} loading={bulkDeleting} onClick={onBulkDelete}>
-              <Trash2 className="size-4" />
-              {selected.size > 0 ? `${selected.size} 件を削除` : '削除'}
-            </Button>
+          <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-3 shadow-lg">
+            <div className="flex gap-2">
+                {canBulkSave && (
+                  <Button className="flex-1" size="sm" disabled={selected.size === 0} onClick={onBulkSave}>
+                    <Download className="size-4" />
+                    {selected.size > 0 ? `${selected.size} 件を保存` : '保存'}
+                  </Button>
+                )}
+                {deletable.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className={`!text-danger ${canBulkSave ? "" : "flex-1"}`}
+                    disabled={selectedDeletable.length === 0}
+                    loading={bulkDeleting}
+                    onClick={onBulkDelete}
+                  >
+                    <Trash2 className="size-4" />
+                    {selectedDeletable.length > 0 ? `${selectedDeletable.length} 件を削除` : '削除'}
+                  </Button>
+                )}
+            </div>
           </div>
         </div>
       )}
+
+      <BulkSaveSheet
+        open={!!saveTarget}
+        onClose={() => setSaveTarget(null)}
+        title={saveTarget?.title ?? ''}
+        albumTitle={album.title}
+        photos={saveTarget?.photos ?? []}
+        savedIds={savedIds}
+        autoStart={saveTarget?.autoStart}
+        onFinished={exitSelection}
+      />
 
       <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title={album.title}>
         <div className="pb-3">
@@ -349,7 +411,7 @@ export function AlbumDetailPage() {
           <SheetItem icon={<Users className="size-5" />} to={`/albums/${album.id}/members`}>
             メンバー
           </SheetItem>
-          {deletable.length > 0 && (
+          {list.length > 0 && (
             <SheetItem
               icon={<CheckSquare className="size-5" />}
               onClick={() => {
@@ -357,7 +419,12 @@ export function AlbumDetailPage() {
                 startSelection();
               }}
             >
-              写真を選択して削除
+              写真を選択 (保存・削除)
+            </SheetItem>
+          )}
+          {canBulkSave && album.photo_count > 0 && (
+            <SheetItem icon={<Download className="size-5" />} onClick={() => void onSaveOthers()}>
+              {loadingOthers ? '読み込み中…' : '他のメンバーの写真を保存'}
             </SheetItem>
           )}
           {isOwner && (
