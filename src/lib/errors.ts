@@ -7,7 +7,8 @@ const MESSAGES: Record<string, string> = {
   'User already registered': 'このメールアドレスは既に登録されています。',
   'Password should be at least 6 characters': 'パスワードは 8 文字以上にしてください。',
   'New password should be different from the old password.': '新しいパスワードは以前と異なるものにしてください。',
-  'Email rate limit exceeded': 'メール送信の回数が上限に達しました。しばらく待ってから再度お試しください。',
+  'Email rate limit exceeded': 'メールの送信回数が上限に達しました。1 時間ほど待ってから再度お試しいただくか、Google でログインしてください。',
+  'For security purposes, you can only request this after': 'セキュリティのため、少し時間をおいてから再度お試しください。',
   not_authenticated: 'ログインが必要です。もう一度ログインしてください。',
   // 権限・業務エラー
   forbidden: 'この操作を行う権限がありません。',
@@ -42,9 +43,17 @@ export function errorCode(err: unknown): string {
   return String(err);
 }
 
+// 大文字小文字の違い (Supabase は "email rate limit exceeded" のように小文字で返すことがある) を吸収
+const MESSAGES_LOWER = new Map(Object.entries(MESSAGES).map(([k, v]) => [k.toLowerCase(), v]));
+
 export function toMessage(err: unknown): string {
   const code = errorCode(err);
-  return MESSAGES[code] ?? (code ? `エラーが発生しました: ${code}` : 'エラーが発生しました。');
+  const lower = code.toLowerCase();
+  const exact = MESSAGES[code] ?? MESSAGES_LOWER.get(lower);
+  if (exact) return exact;
+  // 「For security purposes, you can only request this after 30 seconds.」のように後ろに数字が付くもの
+  for (const [k, v] of MESSAGES_LOWER) if (k.length > 20 && lower.startsWith(k)) return v;
+  return code ? `エラーが発生しました: ${code}` : 'エラーが発生しました。';
 }
 
 /** 通信エラーかどうか (自動再試行の判定に使用) */
