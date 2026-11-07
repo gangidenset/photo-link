@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, Camera, CheckCircle2, Copy, Film, ImageIcon, Images, Loader2, RotateCw, Trash2, Video, X } from 'lucide-react';
 import { useAlbum } from '@/features/albums/api';
 import { formatBytes } from '@/lib/format';
+import { isIOS } from '@/lib/platform';
 import { Button, EmptyState, FullPageSpinner, IconButton, PageHeader, ProgressBar } from '@/components/ui';
 import { ACCEPT_ATTR } from './fileTypes';
 import { useUploadQuality } from './quality';
@@ -72,6 +73,33 @@ export function UploadPickerPage() {
   const enqueue = useUploadStore((s) => s.enqueue);
   const quality = useUploadQuality((s) => s.quality);
   const navigate = useNavigate();
+  // 写真選択の画面を閉じてから、ファイルが届くまでの「準備中」表示
+  //   iPhone は選んだ写真・動画をブラウザに渡す前に変換 (HEIC → JPEG、動画の圧縮) や
+  //   iCloud からのダウンロードを行うため、数秒〜数十秒かかることがある
+  const [preparing, setPreparing] = useState(false);
+  const preparingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopPreparing = () => {
+    if (preparingTimer.current) clearTimeout(preparingTimer.current);
+    preparingTimer.current = null;
+    setPreparing(false);
+  };
+
+  function openPicker(input: HTMLInputElement | null) {
+    if (!input) return;
+    setPreparing(true);
+    if (preparingTimer.current) clearTimeout(preparingTimer.current);
+    // 万一イベントが届かない環境でも、いつまでも残らないように
+    preparingTimer.current = setTimeout(() => setPreparing(false), 120_000);
+    input.click();
+  }
+
+  // 選択をキャンセルしたとき (Safari 16.4+ / Chrome 113+ の cancel イベント)
+  useEffect(() => {
+    const inputs = [libraryInput.current, cameraInput.current, videoInput.current].filter(Boolean) as HTMLInputElement[];
+    inputs.forEach((i) => i.addEventListener('cancel', stopPreparing));
+    return () => inputs.forEach((i) => i.removeEventListener('cancel', stopPreparing));
+  }, [album]);
 
   const totalBytes = useMemo(() => files.reduce((n, f) => n + f.size, 0), [files]);
   const videoCount = useMemo(() => files.filter((f) => f.type.startsWith('video/')).length, [files]);
@@ -116,6 +144,7 @@ export function UploadPickerPage() {
           multiple
           className="hidden"
           onChange={(e) => {
+            stopPreparing();
             addFiles(e.target.files);
             e.target.value = '';
           }}
@@ -127,6 +156,7 @@ export function UploadPickerPage() {
           capture="environment"
           className="hidden"
           onChange={(e) => {
+            stopPreparing();
             addFiles(e.target.files);
             e.target.value = '';
           }}
@@ -138,16 +168,37 @@ export function UploadPickerPage() {
           capture="environment"
           className="hidden"
           onChange={(e) => {
+            stopPreparing();
             addFiles(e.target.files);
             e.target.value = '';
           }}
         />
 
         <div className="grid grid-cols-3 gap-3">
-          <PickButton icon={<Images className="size-7" />} label="ライブラリ" onClick={() => libraryInput.current?.click()} primary />
-          <PickButton icon={<Camera className="size-7" />} label="写真を撮る" onClick={() => cameraInput.current?.click()} />
-          <PickButton icon={<Video className="size-7" />} label="動画を撮る" onClick={() => videoInput.current?.click()} />
+          <PickButton icon={<Images className="size-7" />} label="ライブラリ" onClick={() => openPicker(libraryInput.current)} primary />
+          <PickButton icon={<Camera className="size-7" />} label="写真を撮る" onClick={() => openPicker(cameraInput.current)} />
+          <PickButton icon={<Video className="size-7" />} label="動画を撮る" onClick={() => openPicker(videoInput.current)} />
         </div>
+
+        {preparing && (
+          <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6" role="alertdialog" aria-live="polite" aria-label="写真を準備しています">
+            <div className="w-full max-w-sm rounded-3xl bg-surface p-6 text-center shadow-2xl">
+              <Loader2 className="mx-auto size-8 animate-spin text-accent" />
+              <p className="mt-3 font-semibold">写真を準備しています…</p>
+              <p className="mt-2 text-sm text-ink-2">
+                選んだ写真や動画を読み込んでいます。枚数や動画が多いと、数十秒かかることがあります。
+              </p>
+              {isIOS() && (
+                <p className="mt-3 rounded-xl bg-surface-2 p-3 text-left text-xs text-ink-2">
+                  iPhone では、写真の変換や iCloud からのダウンロードに時間がかかります。写真を選ぶ画面の上部に「オプション」がある場合は、「現在」(または「最新」) を選ぶと速くなります。
+                </p>
+              )}
+              <button className="mt-4 text-sm text-ink-3 underline-offset-4 hover:underline" onClick={stopPreparing}>
+                閉じる
+              </button>
+            </div>
+          </div>
+        )}
 
         {files.length > 0 ? (
           <>

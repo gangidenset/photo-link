@@ -616,6 +616,16 @@ for (const [label, device] of [
       origSize?.width === 4000 && orig.buf.length === large2.length && orig.previewSent,
       `${origSize?.width}x${origSize?.height} ${orig.buf?.length} == ${large2.length}`,
     );
+
+    // 写真選択の画面を閉じてからファイルが届くまで「準備中」を表示
+    await page.goto(`${BASE}/albums/${ALBUM_ID}/upload`);
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'ライブラリ' }).click()]);
+    const overlay = page.getByRole('alertdialog', { name: '写真を準備しています' });
+    const overlayShown = await overlay.isVisible();
+    await page.screenshot({ path: `${OUT}/${label}-19-preparing.png` });
+    await chooser.setFiles(extra.map((buf, i) => ({ name: `PICK_${i}.JPG`, mimeType: 'image/jpeg', buffer: buf })));
+    await page.getByRole('button', { name: '2 件をアップロード' }).waitFor({ timeout: 5000 });
+    check('iPhone: 写真を選ぶ間は「準備しています」を表示し、届いたら消える', overlayShown && (await overlay.count()) === 0);
   }
 
   check(`${label}: コンソールエラーなし`, consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
