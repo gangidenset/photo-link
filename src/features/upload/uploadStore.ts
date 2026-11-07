@@ -52,6 +52,8 @@ interface UploadState {
 const FINISHED: UploadStatus[] = ['done', 'duplicate', 'canceled'];
 export const isActive = (s: UploadStatus) => s === 'preparing' || s === 'uploading' || s === 'finalizing';
 export const isFinished = (s: UploadStatus) => FINISHED.includes(s);
+const AUTO_RETRY_MESSAGE = '通信エラー。自動で再試行します…';
+export const isAutoRetrying = (i: Pick<UploadItem, 'status' | 'error'>) => i.status === 'error' && i.error === AUTO_RETRY_MESSAGE;
 
 const MAX_AUTO_RETRY = 3;
 const BACKOFF_MS = [2000, 5000, 10000];
@@ -284,7 +286,7 @@ async function processItem(id: string) {
     } else {
       const attempts = (get()?.attempts ?? 0) + 1;
       if (isNetworkError(err) && attempts < MAX_AUTO_RETRY) {
-        patch(id, { status: 'error', error: '通信エラー。自動で再試行します…', attempts });
+        patch(id, { status: 'error', error: AUTO_RETRY_MESSAGE, attempts });
         setTimeout(() => {
           const cur = get();
           if (cur && cur.status === 'error' && !canceled.has(id)) {
@@ -356,8 +358,9 @@ export function summarize(items: UploadItem[]) {
     total: relevant.length,
     done: relevant.filter((i) => i.status === 'done').length,
     duplicates: relevant.filter((i) => i.status === 'duplicate').length,
-    failed: relevant.filter((i) => i.status === 'error' && !i.error?.includes('自動で再試行')).length,
-    remaining: relevant.filter((i) => !isFinished(i.status) && i.status !== 'error').length,
+    failed: relevant.filter((i) => i.status === 'error' && !isAutoRetrying(i)).length,
+    // 自動再試行の待ち時間中もまだ終わっていない扱い (完了表示が早く出ないように)
+    remaining: relevant.filter((i) => !isFinished(i.status) && (i.status !== 'error' || isAutoRetrying(i))).length,
     percent: Math.round((doneBytes / totalBytes) * 100),
   };
 }

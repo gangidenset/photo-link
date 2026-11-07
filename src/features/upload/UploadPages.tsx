@@ -5,7 +5,7 @@ import { useAlbum } from '@/features/albums/api';
 import { formatBytes } from '@/lib/format';
 import { Button, EmptyState, FullPageSpinner, IconButton, PageHeader, ProgressBar } from '@/components/ui';
 import { ACCEPT_ATTR } from './fileTypes';
-import { isActive, summarize, useUploadStore, type UploadItem } from './uploadStore';
+import { isActive, isAutoRetrying, summarize, useUploadStore, type UploadItem } from './uploadStore';
 
 // ---------------------------------------------------------------- 選択済みファイルのプレビュー
 // 表示範囲に入ったものだけ画像を読み込む (100 枚以上選んでも重くならない)
@@ -211,7 +211,7 @@ const STATUS_LABEL: Record<UploadItem['status'], string> = {
 const UploadRow = memo(function UploadRow({ item }: { item: UploadItem }) {
   const retry = useUploadStore((s) => s.retry);
   const remove = useUploadStore((s) => s.remove);
-  const autoRetrying = item.status === 'error' && item.error?.includes('自動で再試行');
+  const autoRetrying = isAutoRetrying(item);
   return (
     <li className="flex items-center gap-3 px-4 py-3">
       <span className="shrink-0">

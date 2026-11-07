@@ -530,6 +530,20 @@ for (const [label, device] of [
     const previews = [...mock.state.uploads.keys()].filter((k) => k.endsWith('preview.jpg')).length;
     check('iPhone: 写真の見た目の指紋 (phash) を送信', (mock.state.phashes ?? 0) >= 120, `phash=${mock.state.phashes}`);
     check('iPhone: サムネイル・プレビューを生成して送信', thumbs >= 120 && previews >= 120, `thumbs=${thumbs} previews=${previews}`);
+
+    // 完了表示は数秒後に自動で消える
+    const extra = await makeJpegs(browser, 2);
+    await page.getByRole('link', { name: 'アルバムを見る' }).click().catch(() => undefined);
+    await page.getByRole('link', { name: '追加' }).click();
+    await page.locator('input[type=file][multiple]').setInputFiles(extra.map((buf, i) => ({ name: `EXTRA_${i}.JPG`, mimeType: 'image/jpeg', buffer: Buffer.concat([buf, Buffer.from([i])]) })));
+    await page.getByRole('button', { name: '2 件をアップロード' }).click();
+    await page.getByText('完了しました').waitFor({ timeout: 30000 });
+    await page.getByRole('link', { name: 'アルバムを見る' }).click();
+    const banner = page.getByRole('status').filter({ hasText: 'アップロード完了' });
+    const shown = await banner.waitFor({ timeout: 2000 }).then(() => true).catch(() => false);
+    await page.screenshot({ path: `${OUT}/${label}-18-banner.png` });
+    await page.waitForTimeout(4600);
+    check('iPhone: アップロード完了の表示が数秒後に自動で消える', shown && (await banner.count()) === 0, `shown=${shown}`);
   }
 
   check(`${label}: コンソールエラーなし`, consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
