@@ -1,11 +1,12 @@
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ImagePlus, Images, MoreHorizontal, Pencil, Plus, Trash2, UserPlus, Users } from 'lucide-react';
+import { CheckSquare, ImagePlus, Images, MoreHorizontal, Pencil, Plus, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useAlbumPhotos } from '@/features/photos/api';
+import { deletePhotos, useAlbumPhotos } from '@/features/photos/api';
 import { PhotoGrid } from '@/features/photos/PhotoGrid';
 import { toMessage } from '@/lib/errors';
 import { formatRelative } from '@/lib/format';
+import type { PhotoWithUploader } from '@/types/db';
 import {
   Avatar,
   Button,
@@ -131,8 +132,46 @@ export function AlbumDetailPage() {
   const photos = useAlbumPhotos(albumId, by);
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // 複数選択モード
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const navigate = useNavigate();
   const isOwner = album?.owner_id === userId;
+
+  const list = useMemo(() => photos.data?.pages.flat() ?? [], [photos.data]);
+  // オーナーは全員の写真、メンバーは自分の写真だけ削除できる (DB 側でも同じ制限)
+  const canDelete = useCallback((p: PhotoWithUploader) => isOwner || p.uploader_id === userId, [isOwner, userId]);
+  const deletable = useMemo(() => list.filter(canDelete), [list, canDelete]);
+
+  const exitSelection = useCallback(() => {
+    setSelecting(false);
+    setSelected(new Set());
+  }, []);
+  const toggle = useCallback((p: PhotoWithUploader) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(p.id)) next.delete(p.id);
+      else next.add(p.id);
+      return next;
+    });
+  }, []);
+  const startSelection = useCallback(
+    (p?: PhotoWithUploader) => {
+      setSelecting(true);
+      setSelected(p && canDelete(p) ? new Set([p.id]) : new Set());
+    },
+    [canDelete],
+  );
+
+  // 絞り込みを変えたら選択を解除 / 戻るボタン (Esc) で選択モードを終了
+  useEffect(() => exitSelection(), [by, exitSelection]);
+  useEffect(() => {
+    if (!selecting) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && exitSelection();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selecting, exitSelection]);
 
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = photos;
   const loadMore = useCallback(() => {
@@ -151,7 +190,21 @@ export function AlbumDetailPage() {
       </>
     );
 
-  const list = photos.data?.pages.flat() ?? [];
+  async function onBulkDelete() {
+    const targets = list.filter((p) => selected.has(p.id) && canDelete(p));
+    if (targets.length === 0) return;
+    if (!window.confirm(`選択した ${targets.length} 件を削除しますか？\n元に戻せません。`)) return;
+    setBulkDeleting(true);
+    try {
+      const count = await deletePhotos(targets);
+      toast(count === targets.length ? `${count} 件を削除しました` : `${count} 件を削除しました (${targets.length - count} 件は削除できませんでした)`);
+      exitSelection();
+    } catch (e) {
+      toast(toMessage(e), 'error');
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
 
   async function onDelete() {
     if (!album) return;
@@ -169,6 +222,26 @@ export function AlbumDetailPage() {
 
   return (
     <>
+      {selecting ? (
+        <PageHeader
+          title={selected.size > 0 ? `${selected.size} 件を選択中` : '削除する写真を選択'}
+          actions={
+            <>
+              <button
+                className="min-h-11 rounded-full px-3 text-sm font-semibold text-accent"
+                onClick={() =>
+                  setSelected(selected.size === deletable.length && deletable.length > 0 ? new Set() : new Set(deletable.map((p) => p.id)))
+                }
+              >
+                {selected.size === deletable.length && deletable.length > 0 ? '選択を解除' : 'すべて選択'}
+              </button>
+              <IconButton label="選択をやめる" onClick={exitSelection}>
+                <X className="size-5" />
+              </IconButton>
+            </>
+          }
+        />
+      ) : (
       <PageHeader
         back="/albums"
         title={album.title}
@@ -183,6 +256,7 @@ export function AlbumDetailPage() {
           </>
         }
       />
+      )}
 
       <section className="px-safe mx-auto max-w-5xl pt-4 pb-3">
         {album.description && <p className="mb-3 text-sm whitespace-pre-wrap text-ink-2">{album.description}</p>}
@@ -222,7 +296,7 @@ export function AlbumDetailPage() {
         )}
       </section>
 
-      <main className="mx-auto max-w-5xl">
+      <main className={`mx-auto max-w-5xl ${selecting ? 'pb-24' : ''}`}>
         {photos.isLoading ? (
           <FullPageSpinner />
         ) : list.length === 0 ? (
@@ -247,9 +321,25 @@ export function AlbumDetailPage() {
             loadingMore={isFetchingNextPage}
             onLoadMore={loadMore}
             query={by ? `?by=${by}` : ''}
+            selection={selecting ? { selected, canSelect: canDelete, onToggle: toggle } : null}
+            onLongPress={deletable.length > 0 ? startSelection : undefined}
           />
         )}
       </main>
+
+      {selecting && (
+        <div className="bottom-nav-offset px-safe fixed inset-x-0 z-30 flex justify-center">
+          <div className="flex w-full max-w-md items-center gap-3 rounded-2xl border border-line bg-surface p-3 shadow-lg">
+            <p className="min-w-0 flex-1 pl-1 text-sm text-ink-2">
+              {isOwner ? 'アルバム内の写真を削除できます' : '自分が投稿した写真だけ削除できます'}
+            </p>
+            <Button variant="danger" size="sm" disabled={selected.size === 0} loading={bulkDeleting} onClick={onBulkDelete}>
+              <Trash2 className="size-4" />
+              {selected.size > 0 ? `${selected.size} 件を削除` : '削除'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title={album.title}>
         <div className="pb-3">
@@ -259,6 +349,17 @@ export function AlbumDetailPage() {
           <SheetItem icon={<Users className="size-5" />} to={`/albums/${album.id}/members`}>
             メンバー
           </SheetItem>
+          {deletable.length > 0 && (
+            <SheetItem
+              icon={<CheckSquare className="size-5" />}
+              onClick={() => {
+                setMenuOpen(false);
+                startSelection();
+              }}
+            >
+              写真を選択して削除
+            </SheetItem>
+          )}
           {isOwner && (
             <>
               <SheetItem icon={<UserPlus className="size-5" />} to={`/albums/${album.id}/invite`}>

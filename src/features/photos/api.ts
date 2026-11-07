@@ -83,3 +83,30 @@ export async function deletePhoto(photo: PhotoWithUploader) {
   void queryClient.invalidateQueries({ queryKey: ['recent-photos'] });
   void queryClient.invalidateQueries({ queryKey: ['usage'] });
 }
+
+/**
+ * 複数の写真をまとめて削除する (Storage のファイル → DB の行の順)
+ * @returns 実際に削除できた件数 (権限のない写真は RLS により削除されない)
+ */
+export async function deletePhotos(photos: PhotoWithUploader[]): Promise<number> {
+  if (photos.length === 0) return 0;
+  const paths = photos.flatMap((p) => [p.storage_path, p.thumb_path, p.preview_path].filter(Boolean) as string[]);
+  await removeStorageFiles(paths);
+  let deleted = 0;
+  // URL が長くなりすぎないよう 100 件ずつ
+  for (let i = 0; i < photos.length; i += 100) {
+    const ids = photos.slice(i, i + 100).map((p) => p.id);
+    const { error, count } = await supabase.from('photos').delete({ count: 'exact' }).in('id', ids);
+    if (error) throw error;
+    deleted += count ?? 0;
+  }
+  const albumIds = [...new Set(photos.map((p) => p.album_id))];
+  for (const albumId of albumIds) {
+    void queryClient.invalidateQueries({ queryKey: ['photos', albumId] });
+    void queryClient.invalidateQueries({ queryKey: ['album', albumId] });
+  }
+  void queryClient.invalidateQueries({ queryKey: ['albums'] });
+  void queryClient.invalidateQueries({ queryKey: ['recent-photos'] });
+  void queryClient.invalidateQueries({ queryKey: ['usage'] });
+  return deleted;
+}

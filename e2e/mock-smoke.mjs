@@ -110,6 +110,15 @@ function createMock({ failFirstUploadsFor = null } = {}) {
       return json(notifications);
     }
     if (path === '/rest/v1/comments' || path === '/rest/v1/reactions' || path === '/rest/v1/join_requests' || path === '/rest/v1/invitations') return json([]);
+    if (path === '/rest/v1/photos' && method === 'DELETE') {
+      const ids = (url.searchParams.get('id') ?? '').replace(/^in\.\(|\)$/g, '').split(',').filter(Boolean);
+      state.deletedIds = [...(state.deletedIds ?? []), ...ids];
+      return route.fulfill({ status: 204, headers: { 'content-range': `*/${ids.length}`, 'access-control-allow-origin': '*', 'access-control-expose-headers': '*' } });
+    }
+    if (path === '/storage/v1/object/photos' && method === 'DELETE') {
+      state.removedPaths = [...(state.removedPaths ?? []), ...(req.postDataJSON()?.prefixes ?? [])];
+      return json([]);
+    }
     if (path === '/rest/v1/photos') {
       const id = url.searchParams.get('id')?.replace('eq.', '');
       if (id) return json(single ? (photos.find((p) => p.id === id) ?? null) : photos.filter((p) => p.id === id));
@@ -323,6 +332,34 @@ for (const [label, device] of [
   await page.waitForFunction((n) => document.querySelectorAll('a[href*="/photos/"]').length === n, photos.filter((p) => p.uploader_id === OTHER_ID).length, { timeout: 5000 }).catch(() => undefined);
   check(`${label}: 投稿者で絞り込み`, (await page.locator('a[href*="/photos/"]').count()) === photos.filter((p) => p.uploader_id === OTHER_ID).length);
   await page.getByRole('tab', { name: 'すべて' }).click();
+
+  // 複数選択して一括削除 (長押しで選択モード開始)
+  page.once('dialog', (d) => d.accept());
+  const thumbs = page.locator('a[href*="/photos/"]');
+  const firstBox = await thumbs.nth(0).boundingBox();
+  await page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(700);
+  await page.mouse.up();
+  await page.getByText('1 件を選択中').waitFor({ timeout: 3000 }).catch(() => undefined);
+  check(`${label}: 長押しで選択モードになり写真は開かない`, (await page.getByText('1 件を選択中').count()) === 1 && !page.url().includes('/photos/'));
+  await page.getByRole('checkbox').nth(1).click();
+  await page.getByRole('checkbox').nth(2).click();
+  await page.screenshot({ path: `${OUT}/${label}-05b-select.png` });
+  await page.getByRole('button', { name: '3 件を削除' }).click();
+  await page.getByText('3 件を削除しました').waitFor({ timeout: 5000 }).catch(() => undefined);
+  check(
+    `${label}: 選択した 3 件をまとめて削除 (ファイル + データ)`,
+    mock.state.deletedIds?.length === 3 && mock.state.removedPaths?.length === 3 * 3 - (mock.state.deletedIds.some((id) => photos.find((p) => p.id === id)?.preview_path === null) ? 1 : 0),
+    `ids=${mock.state.deletedIds?.join(',')} files=${mock.state.removedPaths?.length}`,
+  );
+  check(`${label}: 削除後は選択モードを終了`, (await page.getByRole('checkbox').count()) === 0);
+  // メニューからも選択モードに入れる
+  await page.getByRole('button', { name: 'メニュー' }).click();
+  await page.getByRole('button', { name: '写真を選択して削除' }).click();
+  await page.getByRole('button', { name: 'すべて選択' }).click();
+  check(`${label}: すべて選択 (読み込み済みの写真)`, (await page.getByRole('checkbox', { checked: true }).count()) === (await page.getByRole('checkbox').count()));
+  await page.getByRole('button', { name: '選択をやめる' }).click();
 
   // ビューア + スワイプ
   await page.goto(`${BASE}/albums/${ALBUM_ID}/photos/p-1`);
