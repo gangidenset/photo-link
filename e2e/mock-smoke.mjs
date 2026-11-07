@@ -10,6 +10,7 @@
 import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import exifr from 'exifr';
+import { unzipSync } from 'fflate';
 
 const { chromium, devices } = await import('playwright').catch(() => createRequire(import.meta.url)('playwright'));
 
@@ -162,7 +163,10 @@ function createMock({ failFirstUploadsFor = null } = {}) {
     }
     if (path.startsWith('/storage/v1/object/sign/') && method === 'POST') return json({ signedURL: `${path.replace('/storage/v1', '')}?token=t` });
     if (path.startsWith('/storage/v1/object/sign/') && method === 'GET') {
-      return route.fulfill({ status: 200, contentType: 'image/png', body: thumbPng, headers: { 'access-control-allow-origin': '*' } });
+      // 本物の Storage と同様、download 指定時は添付ファイルとして返す
+      const dl = url.searchParams.get('download');
+      const headers = { 'access-control-allow-origin': '*', ...(dl !== null ? { 'content-disposition': `attachment; filename="${encodeURIComponent(dl || 'file')}"` } : {}) };
+      return route.fulfill({ status: 200, contentType: 'image/png', body: thumbPng, headers });
     }
 
     // Storage: 通常アップロード
@@ -266,7 +270,8 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` (${detail})` : ''}`);
 };
 
-const browser = await chromium.launch();
+// 日本語のファイル名を正しく扱うため UTF-8 ロケールで起動 (サーバー環境はロケール未設定のことがある)
+const browser = await chromium.launch({ env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } });
 const fs = await import('node:fs');
 const thumb = fs.readFileSync('public/icons/icon-512.png');
 
@@ -356,10 +361,27 @@ for (const [label, device] of [
   check(`${label}: 削除後は選択モードを終了`, (await page.getByRole('checkbox').count()) === 0);
   // メニューからも選択モードに入れる
   await page.getByRole('button', { name: 'メニュー' }).click();
-  await page.getByRole('button', { name: '写真を選択して削除' }).click();
+  await page.getByRole('button', { name: '写真を選択 (保存・削除)' }).click();
   await page.getByRole('button', { name: 'すべて選択' }).click();
   check(`${label}: すべて選択 (読み込み済みの写真)`, (await page.getByRole('checkbox', { checked: true }).count()) === (await page.getByRole('checkbox').count()));
-  await page.getByRole('button', { name: '選択をやめる' }).click();
+  await page.getByRole('button', { name: '選択を解除' }).click();
+
+  // 一括保存 (iPhone エミュレーションは共有シート非対応のため ZIP、Android は 1 件ずつダウンロード)
+  for (const i of [0, 1, 2]) await page.getByRole('checkbox').nth(i).click();
+  if (label === 'iPhone') {
+    const [download] = await Promise.all([page.waitForEvent('download', { timeout: 15000 }), page.getByRole('button', { name: '3 件を保存' }).click()]);
+    const zipPath = await download.path();
+    const entries = Object.keys(unzipSync(fs.readFileSync(zipPath)));
+    check(`${label}: 3 件を ZIP でまとめて保存`, download.suggestedFilename().endsWith('.zip') && entries.length === 3, `${download.suggestedFilename()} [${entries.join(', ')}]`);
+  } else {
+    const downloads = [];
+    page.on('download', (d) => downloads.push(d.suggestedFilename()));
+    await page.getByRole('button', { name: '3 件を保存' }).click();
+    await page.getByText('3 件のダウンロードを開始しました').waitFor({ timeout: 15000 }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+    check(`${label}: 3 件を 1 件ずつダウンロード`, downloads.length === 3, downloads.join(', '));
+  }
+  check(`${label}: 保存後は選択モードを終了`, (await page.getByRole('checkbox').count()) === 0);
 
   // ビューア + スワイプ
   await page.goto(`${BASE}/albums/${ALBUM_ID}/photos/p-1`);
