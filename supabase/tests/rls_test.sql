@@ -38,8 +38,11 @@ set role authenticated;
 
 -- ---------------------------------------------------------------- アルバム作成
 select pg_temp.login('A');
-insert into public.albums (title, owner_id) values ('家族旅行', '00000000-0000-0000-0000-00000000000a');
-insert into public.t select 'album', id::text from public.albums where title = '家族旅行';
+-- アプリと同じく作成した行を返してもらう (insert ... returning は SELECT ポリシーも満たす必要がある)
+with created as (
+  insert into public.albums (title, owner_id) values ('家族旅行', '00000000-0000-0000-0000-00000000000a') returning id
+)
+insert into public.t select 'album', id::text from created;
 select pg_temp.assert((select member_count from public.albums) = 1, 'owner auto-added as member');
 select pg_temp.assert((select role from public.album_members) = 'owner', 'owner role set');
 
