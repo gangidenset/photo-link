@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { CheckSquare, Download, ImagePlus, Images, MoreHorizontal, Pencil, Plus, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { CheckSquare, Download, ImageIcon, ImagePlus, Images, MoreHorizontal, Pencil, Plus, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { deletePhotos, fetchAllAlbumPhotos, useAlbumPhotos, useDownloadedIds } from '@/features/photos/api';
 import { PhotoGrid } from '@/features/photos/PhotoGrid';
@@ -24,6 +24,7 @@ import {
 } from '@/components/ui';
 import { toast } from '@/components/toast';
 import { AlbumCover } from './AlbumCover';
+import { CoverPickerSheet } from './CoverPickerSheet';
 import { deleteAlbum, useAlbum, useAlbums, useMembers, useMyUsage, useSaveAlbum } from './api';
 
 // ---------------------------------------------------------------- アルバム一覧
@@ -87,6 +88,7 @@ export function AlbumFormPage() {
   const navigate = useNavigate();
   const [title, setTitle] = useState<string | null>(null);
   const [description, setDescription] = useState<string | null>(null);
+  const [coverOpen, setCoverOpen] = useState(false);
 
   if (isEdit && isLoading) return <FullPageSpinner />;
   if (isEdit && (!album || album.owner_id !== userId)) return <Navigate to={`/albums/${albumId}`} replace />;
@@ -112,13 +114,27 @@ export function AlbumFormPage() {
         <form onSubmit={onSubmit} className="space-y-5">
           <TextField label="アルバム名" required maxLength={80} placeholder="例: 2026 夏の家族旅行" value={t} onChange={(e) => setTitle(e.target.value)} autoFocus={!isEdit} />
           <TextArea label="説明 (任意)" maxLength={1000} rows={4} placeholder="どんなアルバムか書いておくと、招待された人に伝わりやすくなります" value={d} onChange={(e) => setDescription(e.target.value)} />
-          {isEdit && <p className="text-xs text-ink-3">カバー画像は、写真を開いて「カバーに設定」から変更できます。</p>}
+          {isEdit && album && (
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-ink-2">カバー画像</span>
+              <div className="flex items-center gap-4">
+                <AlbumCover path={album.cover?.thumb_path} className="size-20 shrink-0 rounded-xl" />
+                <Button type="button" variant="secondary" size="sm" onClick={() => setCoverOpen(true)}>
+                  <ImageIcon className="size-4" />
+                  変更する
+                </Button>
+              </div>
+            </div>
+          )}
           <ErrorBox message={save.error ? toMessage(save.error) : null} />
           <Button type="submit" block loading={save.isPending} disabled={!t.trim()}>
             {isEdit ? '保存する' : '作成して写真を追加'}
           </Button>
         </form>
       </main>
+      {isEdit && album && (
+        <CoverPickerSheet open={coverOpen} onClose={() => setCoverOpen(false)} albumId={album.id} currentCoverId={album.cover_photo_id} />
+      )}
     </>
   );
 }
@@ -135,6 +151,7 @@ export function AlbumDetailPage() {
   const { data: members } = useMembers(albumId);
   const photos = useAlbumPhotos(albumId, by);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [coverOpen, setCoverOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // 複数選択モード
   const [selecting, setSelecting] = useState(false);
@@ -392,6 +409,10 @@ export function AlbumDetailPage() {
         </div>
       )}
 
+      {isOwner && (
+        <CoverPickerSheet open={coverOpen} onClose={() => setCoverOpen(false)} albumId={album.id} currentCoverId={album.cover_photo_id} />
+      )}
+
       <BulkSaveSheet
         open={!!saveTarget}
         onClose={() => setSaveTarget(null)}
@@ -440,6 +461,17 @@ export function AlbumDetailPage() {
               <SheetItem icon={<Pencil className="size-5" />} to={`/albums/${album.id}/edit`}>
                 アルバムを編集
               </SheetItem>
+              {album.photo_count > 0 && (
+                <SheetItem
+                  icon={<ImageIcon className="size-5" />}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setCoverOpen(true);
+                  }}
+                >
+                  カバー画像を変更
+                </SheetItem>
+              )}
               <SheetItem icon={<Trash2 className="size-5" />} danger onClick={onDelete}>
                 {deleting ? '削除中…' : 'アルバムを削除'}
               </SheetItem>

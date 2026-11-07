@@ -103,6 +103,10 @@ function createMock({ failFirstUploadsFor = null } = {}) {
 
     // REST
     if (path === '/rest/v1/profiles') return json(single ? me : [me]);
+    if (path === '/rest/v1/albums' && method === 'PATCH') {
+      state.albumPatches = [...(state.albumPatches ?? []), req.postDataJSON()];
+      return json(single ? album : [album]);
+    }
     if (path === '/rest/v1/albums') return json(single ? album : [album]);
     if (path === '/rest/v1/album_members') return json(members);
     if (path === '/rest/v1/notifications') {
@@ -400,6 +404,21 @@ for (const [label, device] of [
   await page.waitForFunction((n) => document.querySelectorAll('a[href*="/photos/"]').length === n, photos.filter((p) => p.uploader_id === OTHER_ID).length, { timeout: 5000 }).catch(() => undefined);
   check(`${label}: 投稿者で絞り込み`, (await page.locator('a[href*="/photos/"]').count()) === photos.filter((p) => p.uploader_id === OTHER_ID).length);
   await page.getByRole('tab', { name: 'すべて' }).click();
+
+  // カバー画像の変更 (オーナー)
+  await page.getByRole('button', { name: 'メニュー' }).click();
+  await page.getByRole('button', { name: 'カバー画像を変更' }).click();
+  const pick = page.getByRole('button', { name: 'この写真をカバーにする' }).nth(0);
+  await pick.waitFor({ timeout: 5000 });
+  check(`${label}: カバー選択で現在のカバーに印`, (await page.getByRole('button', { name: '現在のカバー' }).count()) === 1);
+  await page.screenshot({ path: `${OUT}/${label}-05a-cover.png` });
+  await pick.click();
+  await page.getByText('カバー画像を変更しました').waitFor({ timeout: 5000 }).catch(() => undefined);
+  check(`${label}: アルバムの写真からカバー画像を変更`, mock.state.albumPatches?.some((b) => b.cover_photo_id === 'p-1'), JSON.stringify(mock.state.albumPatches));
+  await page.goto(`${BASE}/albums/${ALBUM_ID}/edit`);
+  check(`${label}: 編集画面からもカバー画像を変更できる`, await page.getByRole('button', { name: '変更する' }).waitFor({ timeout: 5000 }).then(() => true).catch(() => false));
+  await page.goto(`${BASE}/albums/${ALBUM_ID}`);
+  await page.locator('a[href*="/photos/"]').first().waitFor();
 
   // 複数選択して一括削除 (長押しで選択モード開始)
   page.once('dialog', (d) => d.accept());
