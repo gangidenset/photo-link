@@ -2,12 +2,15 @@
 //   ・保存済みの写真が含まれていれば「未保存だけ / すべて」を選んでもらう (重複保存の確認)
 //   ・50 件ずつ順番に保存 (iPhone は 50 件ごとに「保存・共有する」をタップ)
 //   ・保存できた分を記録し、次回の確認に使う
+//   ・「スマホの写真と照合」で、実際に端末にある写真だけを除外できる
+//     (保存後に端末から削除した写真は、記録上は保存済みでも未保存として扱い直す)
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Download, Share } from 'lucide-react';
+import { CheckCircle2, Download, FolderSearch, ImageUp, Share } from 'lucide-react';
 import { toMessage } from '@/lib/errors';
 import type { PhotoWithUploader } from '@/types/db';
 import { Button, ErrorBox, ProgressBar, Sheet } from '@/components/ui';
-import { markDownloaded } from './api';
+import { markDownloaded, unmarkDownloaded } from './api';
+import { findOwned, fingerprintAlbumPhotos, fingerprintDeviceFiles, supportsFolderPick } from './deviceMatch';
 import {
   BULK_DOWNLOAD_MAX,
   bulkMethod,
@@ -19,7 +22,7 @@ import {
   type BulkMethod,
 } from './bulkDownload';
 
-type Phase = 'confirm' | 'running' | 'ready' | 'done' | 'error';
+type Phase = 'confirm' | 'checking' | 'running' | 'ready' | 'done' | 'error';
 
 interface Props {
   open: boolean;
@@ -56,9 +59,16 @@ export function BulkSaveSheet({ open, onClose, title, albumTitle, photos, savedI
   const batches = useRef<PhotoWithUploader[][]>([]);
   const cancelled = useRef(false);
   const doneBefore = useRef(0);
+  // 端末との照合結果 (null = 未照合。照合後は記録より照合結果を優先)
+  const [deviceOwned, setDeviceOwned] = useState<Set<string> | null>(null);
+  const [checkInfo, setCheckInfo] = useState<{ label: string; done: number; total: number } | null>(null);
+  const [deviceFileCount, setDeviceFileCount] = useState(0);
+  const photoInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
 
-  const already = photos.filter((p) => savedIds.has(p.id));
-  const unsaved = photos.filter((p) => !savedIds.has(p.id));
+  const effectiveSaved = deviceOwned ?? savedIds;
+  const already = photos.filter((p) => effectiveSaved.has(p.id));
+  const unsaved = photos.filter((p) => !effectiveSaved.has(p.id));
   const method = photos.length > 0 ? bulkMethod(photos.slice(0, BULK_DOWNLOAD_MAX)) : 'zip';
   const zipBase = zipNameFor(albumTitle).replace(/\.zip$/, '');
 
@@ -70,12 +80,37 @@ export function BulkSaveSheet({ open, onClose, title, albumTitle, photos, savedI
     setPrepared(null);
     setError(null);
     setSavedCount(0);
+    setDeviceOwned(null);
     if (autoStart && already.length === 0 && photos.length > 0) start(photos);
     return () => {
       cancelled.current = true;
     };
     // 開いた時点の内容で判定する (閉じたら、実行中の 50 件が終わった時点で止める)
   }, [open]);
+
+  /** 端末で選んだ写真と照合し、持っている写真を判定して記録も更新する */
+  async function checkDevice(list: FileList | null) {
+    if (!list || list.length === 0) return;
+    const files = Array.from(list);
+    setPhase('checking');
+    setError(null);
+    try {
+      const album = await fingerprintAlbumPhotos(photos, (done, total) => setCheckInfo({ label: 'アルバムの写真を確認中', done, total }));
+      const device = await fingerprintDeviceFiles(files, (done, total) => setCheckInfo({ label: '端末の写真を確認中', done, total }));
+      const owned = findOwned(album, device);
+      setDeviceFileCount(device.length);
+      setDeviceOwned(owned);
+      // 記録を実際の状態に合わせる: 端末にあれば保存済み、記録だけ残っていて端末にないものは取り消し
+      await markDownloaded(photos.filter((p) => owned.has(p.id) && !savedIds.has(p.id)));
+      await unmarkDownloaded(photos.filter((p) => !owned.has(p.id) && savedIds.has(p.id)));
+      setPhase('confirm');
+    } catch (e) {
+      setError(toMessage(e));
+      setPhase('confirm');
+    } finally {
+      setCheckInfo(null);
+    }
+  }
 
   function start(list: PhotoWithUploader[]) {
     batches.current = chunk(list, BULK_DOWNLOAD_MAX);
@@ -146,15 +181,55 @@ export function BulkSaveSheet({ open, onClose, title, albumTitle, photos, savedI
                 <dd className="text-xl font-bold">{unsaved.length} 件</dd>
               </div>
               <div className="rounded-xl bg-surface-2 p-3">
-                <dt className="text-xs text-ink-3">保存済み</dt>
+                <dt className="text-xs text-ink-3">{deviceOwned ? '端末にある' : '保存済み'}</dt>
                 <dd className="text-xl font-bold">{already.length} 件</dd>
               </div>
             </dl>
-            {already.length > 0 && (
+            {deviceOwned ? (
               <p className="text-sm text-ink-2">
-                {already.length} 件は以前に保存しています。同じ写真が端末に重複しないよう、未保存の分だけ保存できます。
+                選んだ {deviceFileCount} 件の写真と照合しました。端末にある {already.length} 件を除いて保存できます (保存済みの記録も更新しました)。
               </p>
+            ) : (
+              already.length > 0 && (
+                <p className="text-sm text-ink-2">
+                  {already.length} 件は以前に保存しています。同じ写真が端末に重複しないよう、未保存の分だけ保存できます。
+                </p>
+              )
             )}
+            <ErrorBox message={error} />
+
+            {/* 端末の写真と照合 (保存後に端末から削除した写真を正しく扱うため) */}
+            <div className="rounded-xl border border-line p-3">
+              <p className="text-sm font-medium">{deviceOwned ? 'もう一度照合する' : '端末の写真と照合する'}</p>
+              <p className="mt-1 text-xs text-ink-3">
+                保存したあとに端末から削除した写真も「保存済み」と数えられます。端末の写真を選ぶと、実際に持っている写真だけを除外します。
+                選んだ写真は端末の中で比較するだけで、送信されません。
+              </p>
+              <input ref={photoInput} type="file" accept="image/*,video/*" multiple className="hidden" onChange={(e) => { void checkDevice(e.target.files); e.target.value = ''; }} />
+              <input
+                ref={folderInput}
+                type="file"
+                multiple
+                className="hidden"
+                {...({ webkitdirectory: '' } as Record<string, string>)}
+                onChange={(e) => {
+                  void checkDevice(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" onClick={() => photoInput.current?.click()}>
+                  <ImageUp className="size-4" />
+                  写真を選んで照合
+                </Button>
+                {supportsFolderPick() && (
+                  <Button size="sm" variant="secondary" onClick={() => folderInput.current?.click()}>
+                    <FolderSearch className="size-4" />
+                    フォルダを選んで照合
+                  </Button>
+                )}
+              </div>
+            </div>
             <p className="text-xs text-ink-3">
               {METHOD_NOTE[method]}
               {Math.max(unsaved.length, 1) > BULK_DOWNLOAD_MAX && ` ${BULK_DOWNLOAD_MAX} 件ずつ順番に保存します。`}
@@ -168,11 +243,19 @@ export function BulkSaveSheet({ open, onClose, title, albumTitle, photos, savedI
               )}
               {already.length > 0 && (
                 <Button block variant="secondary" onClick={() => start(photos)}>
-                  {unsaved.length > 0 ? `保存済みも含めて ${photos.length} 件を保存` : `もう一度 ${photos.length} 件を保存`}
+                  {unsaved.length > 0 ? `${deviceOwned ? '端末にある写真' : '保存済み'}も含めて ${photos.length} 件を保存` : `もう一度 ${photos.length} 件を保存`}
                 </Button>
               )}
             </div>
           </>
+        ) : phase === 'checking' ? (
+          <div className="space-y-3 py-2">
+            <ProgressBar value={(checkInfo?.done ?? 0) / Math.max(checkInfo?.total ?? 1, 1)} className="h-2" />
+            <p className="text-sm text-ink-2">
+              {checkInfo?.label ?? '照合中'} {checkInfo ? `${checkInfo.done} / ${checkInfo.total} 件` : ''}
+            </p>
+            <p className="text-xs text-ink-3">写真が多いと時間がかかります。この画面を開いたままお待ちください。</p>
+          </div>
         ) : phase === 'running' ? (
           <div className="space-y-3 py-2">
             <ProgressBar value={progress.done / Math.max(progress.total, 1)} className="h-2" />

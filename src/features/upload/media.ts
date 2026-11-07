@@ -1,6 +1,7 @@
 // 写真・動画の前処理: 撮影日時、指紋 (重複判定用ハッシュ)、サムネイル生成
 import type { MediaType } from '@/types/db';
 import { processVideo, stripImageGps } from './privacy';
+import { dhashFromSource } from '@/features/photos/phash';
 
 const THUMB_MAX = 480;
 const PREVIEW_MAX = 1600;
@@ -15,6 +16,16 @@ export interface PreparedMedia {
   durationSec: number | null;
   thumb: Blob | null;
   preview: Blob | null;
+  /** 見た目の指紋 (端末の写真との照合用) */
+  phash: string | null;
+}
+
+function safeHash(source: CanvasImageSource, w: number, h: number): string | null {
+  try {
+    return dhashFromSource(source, w, h);
+  } catch {
+    return null;
+  }
 }
 
 async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
@@ -116,21 +127,30 @@ async function imageDerivatives(blob: Blob, mime: string) {
     const preview = await toJpeg(previewCanvas, 0.82);
     const thumbCanvas = drawScaled(previewCanvas, previewCanvas.width, previewCanvas.height, THUMB_MAX);
     const thumb = await toJpeg(thumbCanvas, 0.75);
+    const phash = safeHash(thumbCanvas, thumbCanvas.width, thumbCanvas.height);
     releaseCanvas(previewCanvas);
     releaseCanvas(thumbCanvas);
-    return { width: w, height: h, preview, thumb };
+    return { width: w, height: h, preview, thumb, phash };
   });
 }
 
 // ---------------------------------------------------------------- 動画のサムネイル
-function videoDerivatives(blob: Blob): Promise<{ width: number | null; height: number | null; durationSec: number | null; thumb: Blob | null }> {
+interface VideoMeta {
+  width: number | null;
+  height: number | null;
+  durationSec: number | null;
+  thumb: Blob | null;
+  phash: string | null;
+}
+
+function videoDerivatives(blob: Blob): Promise<VideoMeta> {
   return serialize(
     () =>
       new Promise((resolve) => {
         const url = URL.createObjectURL(blob);
         const video = document.createElement('video');
         let done = false;
-        const finish = (r: { width: number | null; height: number | null; durationSec: number | null; thumb: Blob | null }) => {
+        const finish = (r: VideoMeta) => {
           if (done) return;
           done = true;
           clearTimeout(timer);
@@ -145,7 +165,7 @@ function videoDerivatives(blob: Blob): Promise<{ width: number | null; height: n
           durationSec: Number.isFinite(video.duration) ? video.duration : null,
         });
         // 再生できない形式 (例: Android で HEVC) でもアップロード自体は続ける
-        const timer = setTimeout(() => finish({ ...meta(), thumb: null }), 10_000);
+        const timer = setTimeout(() => finish({ ...meta(), thumb: null, phash: null }), 10_000);
         video.muted = true;
         video.playsInline = true;
         video.preload = 'auto';
@@ -154,16 +174,17 @@ function videoDerivatives(blob: Blob): Promise<{ width: number | null; height: n
         };
         video.onseeked = async () => {
           try {
-            if (!video.videoWidth) return finish({ ...meta(), thumb: null });
+            if (!video.videoWidth) return finish({ ...meta(), thumb: null, phash: null });
             const c = drawScaled(video, video.videoWidth, video.videoHeight, THUMB_MAX);
             const thumb = await toJpeg(c, 0.75);
+            const phash = safeHash(c, c.width, c.height);
             releaseCanvas(c);
-            finish({ ...meta(), thumb });
+            finish({ ...meta(), thumb, phash });
           } catch {
-            finish({ ...meta(), thumb: null });
+            finish({ ...meta(), thumb: null, phash: null });
           }
         };
-        video.onerror = () => finish({ width: null, height: null, durationSec: null, thumb: null });
+        video.onerror = () => finish({ width: null, height: null, durationSec: null, thumb: null, phash: null });
         video.src = url;
         video.load();
       }),
@@ -184,11 +205,12 @@ export async function prepareMedia(file: File, mime: string, mediaType: MediaTyp
     const takenAt = await readTakenAt(file);
     stripImageGps(bytes, mime);
     const original = new Blob([bytes as BlobPart], { type: mime });
-    let derived: { width: number | null; height: number | null; preview: Blob | null; thumb: Blob | null } = {
+    let derived: { width: number | null; height: number | null; preview: Blob | null; thumb: Blob | null; phash: string | null } = {
       width: null,
       height: null,
       preview: null,
       thumb: null,
+      phash: null,
     };
     try {
       derived = await imageDerivatives(original, mime);

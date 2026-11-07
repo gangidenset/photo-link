@@ -110,6 +110,11 @@ function createMock({ failFirstUploadsFor = null } = {}) {
       if (method === 'PATCH') return json([]);
       return json(notifications);
     }
+    if (path === '/rest/v1/photo_downloads' && method === 'DELETE') {
+      const ids = (url.searchParams.get('photo_id') ?? '').replace(/^in\.\(|\)$/g, '').split(',').filter(Boolean);
+      ids.forEach((id) => state.marked?.delete(id));
+      return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*' } });
+    }
     if (path === '/rest/v1/photo_downloads') return json([...(state.marked ?? new Set())].map((id) => ({ photo_id: id })));
     if (path === '/rest/v1/rpc/mark_photos_downloaded') {
       const ids = req.postDataJSON().p_photo_ids;
@@ -132,7 +137,12 @@ function createMock({ failFirstUploadsFor = null } = {}) {
       if (id) return json(single ? (photos.find((p) => p.id === id) ?? null) : photos.filter((p) => p.id === id));
       const up = url.searchParams.get('uploader_id');
       const filtered = !up ? photos : up.startsWith('neq.') ? photos.filter((p) => `neq.${p.uploader_id}` !== up) : photos.filter((p) => `eq.${p.uploader_id}` === up);
-      // 1 ページ目のみ返す (60 件) / 2 ページ目以降は残り
+      // 無限スクロール: 1 ページ目は 60 件、続き (or=...) は残り。offset/limit 指定時はその範囲
+      if (url.searchParams.has('offset')) {
+        const offset = Number(url.searchParams.get('offset'));
+        const limit = Number(url.searchParams.get('limit') ?? 1000);
+        return json(filtered.slice(offset, offset + limit));
+      }
       const isNext = url.searchParams.has('or');
       return json(isNext ? filtered.slice(60) : filtered.slice(0, 60));
     }
@@ -161,6 +171,7 @@ function createMock({ failFirstUploadsFor = null } = {}) {
     }
     if (path === '/rest/v1/rpc/complete_photo_upload') {
       state.complete++;
+      if (/^[0-9a-f]{16}$/.test(req.postDataJSON().p_phash ?? '')) state.phashes = (state.phashes ?? 0) + 1;
       return json({ ...photos[0], id: req.postDataJSON().p_photo_id });
     }
 
@@ -174,6 +185,9 @@ function createMock({ failFirstUploadsFor = null } = {}) {
       // 本物の Storage と同様、download 指定時は添付ファイルとして返す
       const dl = url.searchParams.get('download');
       const headers = { 'access-control-allow-origin': '*', ...(dl !== null ? { 'content-disposition': `attachment; filename="${encodeURIComponent(dl || 'file')}"` } : {}) };
+      const objectPath = decodeURIComponent(path.replace('/storage/v1/object/sign/photos/', ''));
+      const override = state.thumbOverrides?.[objectPath];
+      if (override) return route.fulfill({ status: 200, contentType: 'image/jpeg', body: override, headers });
       return route.fulfill({ status: 200, contentType: 'image/png', body: thumbPng, headers });
     }
 
@@ -282,6 +296,8 @@ const check = (name, ok, detail = '') => {
 const browser = await chromium.launch({ env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } });
 const fs = await import('node:fs');
 const thumb = fs.readFileSync('public/icons/icon-512.png');
+// 端末にある写真の代わり (アルバムの p-3 / p-6 のサムネイルとしても使う)
+const deviceJpegs = await makeJpegs(browser, 2);
 
 async function noHorizontalOverflow(page) {
   return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
@@ -412,6 +428,30 @@ for (const [label, device] of [
   check(`${label}: 他のメンバーの写真をすべて記録`, others.every((p) => mock.state.marked.has(p.id)));
   await page.getByRole('button', { name: '閉じる' }).click();
 
+  // アルバム全体の保存 + 端末の写真と照合 (p-3 と p-6 だけ端末に残っている想定)
+  mock.state.thumbOverrides = { [`${ALBUM_ID}/p-3/thumb.jpg`]: deviceJpegs[0], [`${ALBUM_ID}/p-6/thumb.jpg`]: deviceJpegs[1] };
+  await page.getByRole('button', { name: 'メニュー' }).click();
+  await page.getByRole('button', { name: 'アルバムの写真をすべて保存 (自分の写真も含む)' }).click();
+  await page.getByRole('button', { name: '写真を選んで照合' }).waitFor({ timeout: 5000 });
+  const recordedBefore = mock.state.marked.size;
+  check(`${label}: アルバム全体の保存で記録上の保存済みを表示`, (await page.getByText(`${recordedBefore} 件は以前に保存しています`).count()) === 1, `recorded=${recordedBefore}`);
+  await page.locator('input[type=file][accept="image/*,video/*"]').setInputFiles([
+    { name: 'IMG_A.JPG', mimeType: 'image/jpeg', buffer: deviceJpegs[0] },
+    { name: 'IMG_B.JPG', mimeType: 'image/jpeg', buffer: deviceJpegs[1] },
+  ]);
+  await page.getByText('選んだ 2 件の写真と照合しました').waitFor({ timeout: 30000 }).catch(() => undefined);
+  await page.screenshot({ path: `${OUT}/${label}-05d-device-check.png` });
+  check(
+    `${label}: 端末の写真と照合して実際に持っている 2 件だけ除外`,
+    (await page.getByRole('button', { name: `未保存の ${photos.length - 2} 件だけ保存` }).count()) === 1,
+  );
+  check(
+    `${label}: 端末にない写真の保存済み記録を取り消し`,
+    mock.state.marked.size === 2 && mock.state.marked.has('p-3') && mock.state.marked.has('p-6'),
+    [...mock.state.marked].join(','),
+  );
+  await page.keyboard.press('Escape');
+
   // ビューア + スワイプ
   await page.goto(`${BASE}/albums/${ALBUM_ID}/photos/p-1`);
   await page.getByLabel('詳細情報').waitFor();
@@ -488,6 +528,7 @@ for (const [label, device] of [
     check('iPhone: アップロード前に GPS 位置情報を除去', before?.GPSLatitude && gpsTarget && !after?.GPSLatitude, `before=${JSON.stringify(before?.GPSLatitude)} after=${JSON.stringify(after?.GPSLatitude)}`);
     const thumbs = [...mock.state.uploads.keys()].filter((k) => k.endsWith('thumb.jpg')).length;
     const previews = [...mock.state.uploads.keys()].filter((k) => k.endsWith('preview.jpg')).length;
+    check('iPhone: 写真の見た目の指紋 (phash) を送信', (mock.state.phashes ?? 0) >= 120, `phash=${mock.state.phashes}`);
     check('iPhone: サムネイル・プレビューを生成して送信', thumbs >= 120 && previews >= 120, `thumbs=${thumbs} previews=${previews}`);
   }
 

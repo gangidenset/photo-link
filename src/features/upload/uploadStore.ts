@@ -271,6 +271,7 @@ async function processItem(id: string) {
     const { error: completeError } = await supabase.rpc('complete_photo_upload', {
       p_photo_id: reserved.id,
       p_has_thumb: hasThumb,
+      p_phash: prepared.phash,
     });
     if (completeError) throw completeError;
 

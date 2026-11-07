@@ -181,7 +181,8 @@ select pg_temp.assert(true, 'cannot complete without uploaded file');
 insert into storage.objects (bucket_id, name, metadata) values
   ('photos', (select v::jsonb ->> 'storage_path' from public.t where k = 'up'), '{"size":1234,"mimetype":"image/jpeg"}'),
   ('photos', (select v::jsonb ->> 'thumb_path' from public.t where k = 'up'), '{"size":10,"mimetype":"image/jpeg"}');
-select pg_temp.assert((public.complete_photo_upload((select (v::jsonb ->> 'id')::uuid from public.t where k = 'up'))).status = 'ready', 'complete upload');
+select pg_temp.assert((public.complete_photo_upload((select (v::jsonb ->> 'id')::uuid from public.t where k = 'up'), true, '0f1e2d3c4b5a6978')).status = 'ready', 'complete upload');
+select pg_temp.assert((select phash from public.photos) = '0f1e2d3c4b5a6978', 'phash stored on completion');
 select pg_temp.assert((select size_bytes from public.photos) = 1234, 'size recorded from storage');
 select pg_temp.assert((select preview_path is null from public.photos), 'missing preview cleared');
 

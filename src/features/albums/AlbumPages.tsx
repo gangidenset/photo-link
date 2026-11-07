@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CheckSquare, Download, ImagePlus, Images, MoreHorizontal, Pencil, Plus, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { deletePhotos, fetchOthersPhotos, useAlbumPhotos, useDownloadedIds } from '@/features/photos/api';
+import { deletePhotos, fetchAllAlbumPhotos, useAlbumPhotos, useDownloadedIds } from '@/features/photos/api';
 import { PhotoGrid } from '@/features/photos/PhotoGrid';
 import { BulkSaveSheet } from '@/features/photos/BulkSaveSheet';
 import { hasFeature } from '@/lib/features';
@@ -209,13 +209,13 @@ export function AlbumDetailPage() {
     setSaveTarget({ title: `選択した ${selectedPhotos.length} 件を保存`, photos: selectedPhotos, autoStart: true });
   }
 
-  async function onSaveOthers() {
+  async function onSaveAll(othersOnly: boolean) {
     if (!album || !userId) return;
     setMenuOpen(false);
     setLoadingOthers(true);
     try {
-      const others = await fetchOthersPhotos(album.id, userId);
-      setSaveTarget({ title: '他のメンバーの写真を保存', photos: others, autoStart: false });
+      const target = await fetchAllAlbumPhotos(album.id, othersOnly ? userId : undefined);
+      setSaveTarget({ title: othersOnly ? '他のメンバーの写真を保存' : 'アルバムの写真をすべて保存', photos: target, autoStart: false });
     } catch (e) {
       toast(toMessage(e), 'error');
     } finally {
@@ -423,9 +423,14 @@ export function AlbumDetailPage() {
             </SheetItem>
           )}
           {canBulkSave && album.photo_count > 0 && (
-            <SheetItem icon={<Download className="size-5" />} onClick={() => void onSaveOthers()}>
-              {loadingOthers ? '読み込み中…' : '他のメンバーの写真を保存'}
-            </SheetItem>
+            <>
+              <SheetItem icon={<Download className="size-5" />} onClick={() => void onSaveAll(true)}>
+                {loadingOthers ? '読み込み中…' : '他のメンバーの写真を保存'}
+              </SheetItem>
+              <SheetItem icon={<Download className="size-5" />} onClick={() => void onSaveAll(false)}>
+                {loadingOthers ? '読み込み中…' : 'アルバムの写真をすべて保存 (自分の写真も含む)'}
+              </SheetItem>
+            </>
           )}
           {isOwner && (
             <>
