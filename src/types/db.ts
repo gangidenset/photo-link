@@ -46,6 +46,8 @@ export interface AlbumMember {
   album_id: string;
   user_id: string;
   role: Role;
+  /** 招待リンクを作る権限 (オーナーが付与) */
+  can_invite: boolean;
   joined_at: string;
   profile: ProfileLite | null;
 }
@@ -126,7 +128,8 @@ export type NotificationType =
   | 'reaction'
   | 'join_request'
   | 'join_approved'
-  | 'join_rejected';
+  | 'join_rejected'
+  | 'invite_permission_granted';
 
 export interface AppNotification {
   id: string;

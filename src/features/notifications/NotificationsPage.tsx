@@ -27,6 +27,8 @@ function describe(n: AppNotification): { text: string; to: string } {
       return { text: `${album}への参加が承認されました`, to: albumTo };
     case 'join_rejected':
       return { text: `${album}への参加リクエストは承認されませんでした`, to: '/albums' };
+    case 'invite_permission_granted':
+      return { text: `${who} さんから${album}にメンバーを招待する権限をもらいました`, to: n.album_id ? `/albums/${n.album_id}/invite` : albumTo };
   }
 }
 

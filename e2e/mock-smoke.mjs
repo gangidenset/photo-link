@@ -80,7 +80,15 @@ const user = { id: USER_ID, aud: 'authenticated', role: 'authenticated', email: 
 const session = { access_token: accessToken, refresh_token: 'refresh', token_type: 'bearer', expires_in: 3600, expires_at: Math.floor(now / 1000) + 3600, user };
 
 // ---------------------------------------------------------------- モック API
-function createMock({ failFirstUploadsFor = null } = {}) {
+function createMock({ failFirstUploadsFor = null, memberView = null } = {}) {
+  // memberView: 自分がメンバー (オーナーは花子) の視点。canInvite で招待の権限の有無
+  const albumFx = memberView ? { ...album, owner_id: OTHER_ID } : album;
+  const membersFx = memberView
+    ? [
+        { ...members[0], user_id: OTHER_ID, role: 'owner', can_invite: false, profile: profile(OTHER_ID, '花子') },
+        { ...members[1], user_id: USER_ID, role: 'member', can_invite: memberView.canInvite, profile: profile(USER_ID, 'テスト太郎') },
+      ]
+    : members.map((m) => ({ can_invite: false, ...m }));
   const state = { begin: 0, complete: 0, uploads: new Map(), tus: new Map(), failures: 0, gpsFile: null };
   let thumbPng;
 
@@ -105,10 +113,17 @@ function createMock({ failFirstUploadsFor = null } = {}) {
     if (path === '/rest/v1/profiles') return json(single ? me : [me]);
     if (path === '/rest/v1/albums' && method === 'PATCH') {
       state.albumPatches = [...(state.albumPatches ?? []), req.postDataJSON()];
-      return json(single ? album : [album]);
+      return json(single ? albumFx : [albumFx]);
     }
-    if (path === '/rest/v1/albums') return json(single ? album : [album]);
-    if (path === '/rest/v1/album_members') return json(members);
+    if (path === '/rest/v1/albums') return json(single ? albumFx : [albumFx]);
+    if (path === '/rest/v1/album_members') return json(membersFx);
+    if (path === '/rest/v1/rpc/set_member_can_invite') {
+      const b = req.postDataJSON();
+      state.permissionCalls = [...(state.permissionCalls ?? []), b];
+      const m = membersFx.find((x) => x.user_id === b.p_user_id);
+      if (m) m.can_invite = b.p_can_invite;
+      return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*' } });
+    }
     if (path === '/rest/v1/notifications') {
       if (method === 'HEAD') return route.fulfill({ status: 200, headers: { 'content-range': '0-0/1', 'access-control-allow-origin': '*', 'access-control-expose-headers': '*' } });
       if (method === 'PATCH') return json([]);
@@ -543,6 +558,19 @@ for (const [label, device] of [
     await page.screenshot({ path: `${OUT}/${label}-${file}.png` });
   }
 
+  // 招待の権限を付与 (オーナー)
+  await page.goto(`${BASE}/albums/${ALBUM_ID}/members`);
+  const permSwitch = page.getByRole('switch', { name: '花子 さんに招待の権限を付与' });
+  await permSwitch.waitFor({ timeout: 5000 });
+  await permSwitch.click({ force: true });
+  await page.getByText('招待の権限を付与しました').waitFor({ timeout: 5000 }).catch(() => undefined);
+  check(
+    `${label}: オーナーがメンバーに招待の権限を付与`,
+    mock.state.permissionCalls?.some((c) => c.p_user_id === OTHER_ID && c.p_can_invite === true),
+    JSON.stringify(mock.state.permissionCalls),
+  );
+  await page.screenshot({ path: `${OUT}/${label}-08b-permission.png` });
+
   // 一括アップロード (120 枚 + 同一ファイル 1 枚 + 8MB 動画 1 本)
   if (label === 'iPhone') {
     const jpegs = await makeJpegs(browser, 120);
@@ -645,6 +673,28 @@ for (const [label, device] of [
     await chooser.setFiles(extra.map((buf, i) => ({ name: `PICK_${i}.JPG`, mimeType: 'image/jpeg', buffer: buf })));
     await page.getByRole('button', { name: '2 件をアップロード' }).waitFor({ timeout: 5000 });
     check('iPhone: 写真を選ぶ間は「準備しています」を表示し、届いたら消える', overlayShown && (await overlay.count()) === 0);
+  }
+
+  // メンバーの視点: 招待の権限あり / なし
+  for (const canInvite of [true, false]) {
+    const mctx = await browser.newContext({ ...device });
+    const mmock = createMock({ memberView: { canInvite } });
+    mmock.setThumb(thumb);
+    await mctx.route(`${SB}/**`, mmock.handler);
+    await mctx.addInitScript((s) => localStorage.setItem('sb-mock-auth-token', JSON.stringify(s)), session);
+    const mpage = await mctx.newPage();
+    await mpage.goto(`${BASE}/albums/${ALBUM_ID}/invite`);
+    const ok = canInvite
+      ? await mpage.getByRole('button', { name: '招待リンクを作成' }).waitFor({ timeout: 5000 }).then(() => true).catch(() => false)
+      : await mpage.getByText('招待する権限がありません').waitFor({ timeout: 5000 }).then(() => true).catch(() => false);
+    check(`${label}: 招待の権限${canInvite ? 'がある' : 'がない'}メンバーの招待画面`, ok);
+    await mpage.goto(`${BASE}/albums/${ALBUM_ID}/members`);
+    await mpage.getByRole('heading', { name: 'メンバー', exact: true }).waitFor();
+    await mpage.waitForTimeout(300);
+    const hasInviteBtn = (await mpage.getByRole('button', { name: 'メンバーを招待' }).count()) > 0;
+    const hasSwitch = (await mpage.getByRole('switch').count()) > 0;
+    check(`${label}: メンバー画面の招待ボタン (${canInvite ? 'あり' : 'なし'})・権限スイッチは非表示`, hasInviteBtn === canInvite && !hasSwitch);
+    await mctx.close();
   }
 
   check(`${label}: コンソールエラーなし`, consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
