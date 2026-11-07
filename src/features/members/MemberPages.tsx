@@ -9,7 +9,7 @@ import { formatDateTime } from '@/lib/format';
 import { canShareText } from '@/lib/platform';
 import type { Invitation, InvitationPreview } from '@/types/db';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useAlbum, useInvitations, useJoinRequests, useMembers } from '@/features/albums/api';
+import { setMemberCanInvite, useAlbum, useCanInvite, useInvitations, useJoinRequests, useMembers } from '@/features/albums/api';
 import { Avatar, Button, EmptyState, ErrorBox, FullPageSpinner, IconButton, PageHeader, TextField } from '@/components/ui';
 import { toast } from '@/components/toast';
 
@@ -22,8 +22,15 @@ export function MembersPage() {
   const { data: album } = useAlbum(albumId);
   const { data: members, isLoading } = useMembers(albumId);
   const isOwner = album?.owner_id === userId;
+  const canInvite = useCanInvite(albumId, userId);
   const { data: requests } = useJoinRequests(albumId, isOwner);
   const navigate = useNavigate();
+
+  const togglePermission = useMutation({
+    mutationFn: ({ uid, value }: { uid: string; value: boolean }) => setMemberCanInvite(albumId!, uid, value),
+    onSuccess: (_d, v) => toast(v.value ? '招待の権限を付与しました' : '招待の権限を取り消しました (その人が作った招待も無効になりました)'),
+    onError: (e) => toast(toMessage(e), 'error'),
+  });
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['members', albumId] });
@@ -75,7 +82,7 @@ export function MembersPage() {
         title="メンバー"
         back={`/albums/${albumId}`}
         actions={
-          isOwner && (
+          canInvite && (
             <Link to={`/albums/${albumId}/invite`} aria-label="招待" className="inline-flex size-11 items-center justify-center rounded-full hover:bg-surface-2">
               <UserPlus className="size-5" />
             </Link>
@@ -121,11 +128,34 @@ export function MembersPage() {
                     <>
                       <Crown className="size-3" /> オーナー
                     </>
+                  ) : m.can_invite ? (
+                    <>
+                      <UserPlus className="size-3" /> メンバー ・ 招待できる
+                    </>
                   ) : (
                     'メンバー'
                   )}
                 </p>
               </div>
+              {isOwner && m.role !== 'owner' && (
+                <label className="flex shrink-0 cursor-pointer flex-col items-center gap-0.5 text-[10px] text-ink-3">
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    className="peer sr-only"
+                    checked={m.can_invite}
+                    disabled={togglePermission.isPending}
+                    aria-label={`${m.profile?.display_name} さんに招待の権限を付与`}
+                    onChange={(e) => {
+                      const value = e.target.checked;
+                      if (!value && !window.confirm(`${m.profile?.display_name} さんの招待の権限を取り消しますか？\nこの人が作った招待リンクも使えなくなります。`)) return;
+                      togglePermission.mutate({ uid: m.user_id, value });
+                    }}
+                  />
+                  <span className="relative h-6 w-10 rounded-full bg-line transition peer-checked:bg-accent after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-4" />
+                  招待
+                </label>
+              )}
               {isOwner && m.role !== 'owner' && (
                 <IconButton
                   label={`${m.profile?.display_name} を除外`}
@@ -142,15 +172,20 @@ export function MembersPage() {
           ))}
         </ul>
 
+        {isOwner && members && members.length > 1 && (
+          <p className="px-safe mt-3 text-xs text-ink-3">「招待」をオンにしたメンバーは、招待リンクを作って他の人を招待できます。メンバーの除外や参加リクエストの承認はオーナーだけができます。</p>
+        )}
+
         <div className="px-safe mt-8 space-y-3">
-          {isOwner ? (
+          {canInvite && (
             <Link to={`/albums/${albumId}/invite`}>
               <Button block>
                 <UserPlus className="size-5" />
                 メンバーを招待
               </Button>
             </Link>
-          ) : (
+          )}
+          {!isOwner && (
             <Button
               block
               variant="secondary"
@@ -173,7 +208,9 @@ export function InvitePage() {
   const { userId } = useAuth();
   const { data: album, isLoading } = useAlbum(albumId);
   const isOwner = album?.owner_id === userId;
-  const { data: invitations } = useInvitations(albumId, isOwner);
+  const { data: members, isLoading: membersLoading } = useMembers(albumId);
+  const canInvite = useCanInvite(albumId, userId);
+  const { data: invitations } = useInvitations(albumId, canInvite);
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [expiresIn, setExpiresIn] = useState(168);
 
@@ -203,14 +240,17 @@ export function InvitePage() {
     onError: (e) => toast(toMessage(e), 'error'),
   });
 
-  if (isLoading) return <FullPageSpinner />;
-  if (!album || !isOwner)
+  if (isLoading || membersLoading) return <FullPageSpinner />;
+  if (!album || !canInvite)
     return (
       <>
         <PageHeader back={`/albums/${albumId}`} title="招待" />
-        <EmptyState icon={<Ban className="size-7" />} title="招待はオーナーのみ作成できます" />
+        <EmptyState icon={<Ban className="size-7" />} title="招待する権限がありません">
+          オーナーに「招待」の権限をもらうと、メンバーを招待できるようになります。
+        </EmptyState>
       </>
     );
+  const creatorName = (id: string) => (id === userId ? 'あなた' : (members?.find((m) => m.user_id === id)?.profile?.display_name ?? 'メンバー'));
 
   const active = invitations?.filter((i) => !i.revoked_at && new Date(i.expires_at) > new Date() && (i.max_uses == null || i.use_count < i.max_uses)) ?? [];
 
@@ -237,7 +277,7 @@ export function InvitePage() {
           <label className="mt-4 flex items-center justify-between gap-4">
             <span className="text-sm">
               <span className="font-medium">参加に承認を必要にする</span>
-              <span className="block text-xs text-ink-3">オンにすると、あなたが承認するまで参加できません</span>
+              <span className="block text-xs text-ink-3">オンにすると、オーナーが承認するまで参加できません</span>
             </span>
             <input type="checkbox" className="size-6 accent-[var(--accent)]" checked={requiresApproval} onChange={(e) => setRequiresApproval(e.target.checked)} />
           </label>
@@ -248,10 +288,10 @@ export function InvitePage() {
 
         {active.length > 0 && (
           <section className="mt-8">
-            <h2 className="mb-3 text-sm font-semibold text-ink-2">有効な招待</h2>
+            <h2 className="mb-3 text-sm font-semibold text-ink-2">{isOwner ? '有効な招待' : 'あなたが作った有効な招待'}</h2>
             <ul className="space-y-4">
               {active.map((inv) => (
-                <InvitationCard key={inv.id} inv={inv} albumTitle={album.title} onRevoke={() => window.confirm('この招待リンクを無効にしますか？') && revoke.mutate(inv.id)} />
+                <InvitationCard key={inv.id} inv={inv} albumTitle={album.title} creator={creatorName(inv.created_by)} onRevoke={() => window.confirm('この招待リンクを無効にしますか？') && revoke.mutate(inv.id)} />
               ))}
             </ul>
           </section>
@@ -261,7 +301,7 @@ export function InvitePage() {
   );
 }
 
-function InvitationCard({ inv, albumTitle, onRevoke }: { inv: Invitation; albumTitle: string; onRevoke: () => void }) {
+function InvitationCard({ inv, albumTitle, creator, onRevoke }: { inv: Invitation; albumTitle: string; creator: string; onRevoke: () => void }) {
   const url = inviteUrl(inv);
   const message = `PhotoLink のアルバム「${albumTitle}」に招待します。\n${url}\n招待コード: ${inv.code}`;
 
@@ -295,7 +335,7 @@ function InvitationCard({ inv, albumTitle, onRevoke }: { inv: Invitation; albumT
       </div>
       <p className="mt-2 truncate rounded-lg bg-surface-2 px-3 py-2 font-mono text-xs text-ink-2">{url}</p>
       <p className="mt-2 text-xs text-ink-3">
-        {formatDateTime(inv.expires_at)} まで ・ {inv.use_count} 人が使用{inv.requires_approval && ' ・ 承認制'}
+        {formatDateTime(inv.expires_at)} まで ・ {inv.use_count} 人が使用{inv.requires_approval && ' ・ 承認制'} ・ 作成: {creator}
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2">
         {canShareText() ? (

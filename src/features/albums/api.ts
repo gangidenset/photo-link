@@ -160,3 +160,17 @@ export async function deleteAlbum(albumId: string) {
   void queryClient.invalidateQueries({ queryKey: ['albums'] });
   void queryClient.invalidateQueries({ queryKey: ['usage'] });
 }
+
+/** 自分がこのアルバムに招待できるか (オーナー、または権限を付与されたメンバー) */
+export function useCanInvite(albumId: string | undefined, userId: string | null) {
+  const { data: members } = useMembers(albumId);
+  const me = members?.find((m) => m.user_id === userId);
+  return !!me && (me.role === 'owner' || me.can_invite);
+}
+
+export async function setMemberCanInvite(albumId: string, userId: string, canInvite: boolean) {
+  const { error } = await supabase.rpc('set_member_can_invite', { p_album_id: albumId, p_user_id: userId, p_can_invite: canInvite });
+  if (error) throw error;
+  void queryClient.invalidateQueries({ queryKey: ['members', albumId] });
+  void queryClient.invalidateQueries({ queryKey: ['invitations', albumId] });
+}

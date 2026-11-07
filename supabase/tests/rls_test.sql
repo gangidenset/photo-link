@@ -138,6 +138,54 @@ select pg_temp.assert(
   (public.get_invitation_preview(null, (select v from public.t where k = 'inv2')) ->> 'state') = 'revoked',
   'revoked invitation reported');
 
+-- ---------------------------------------------------------------- 招待の権限 (メンバーへの付与)
+select pg_temp.login('B');
+do $$ begin
+  perform public.create_invitation((select v::uuid from public.t where k = 'album'));
+  raise exception 'should fail';
+exception when others then
+  if sqlerrm <> 'forbidden' then raise; end if;
+end $$;
+select pg_temp.assert(true, 'member without permission cannot invite');
+do $$ begin
+  perform public.set_member_can_invite((select v::uuid from public.t where k = 'album'), '00000000-0000-0000-0000-00000000000d', true);
+  raise exception 'should fail';
+exception when others then
+  if sqlerrm <> 'forbidden' then raise; end if;
+end $$;
+select pg_temp.assert(true, 'member cannot grant invite permission');
+
+select pg_temp.login('A');
+select public.set_member_can_invite((select v::uuid from public.t where k = 'album'), '00000000-0000-0000-0000-00000000000b', true);
+select pg_temp.login('B');
+select pg_temp.assert((select count(*) from public.notifications where type = 'invite_permission_granted') = 1, 'member notified of invite permission');
+select pg_temp.assert((select can_invite from public.album_members where user_id = '00000000-0000-0000-0000-00000000000b'), 'permission visible to members');
+insert into public.t select 'b_inv', (public.create_invitation((select v::uuid from public.t where k = 'album'))).id::text;
+select pg_temp.assert((select count(*) from public.invitations) = 1, 'permitted member sees only own invitations');
+do $$ begin
+  perform public.revoke_invitation((select id from public.invitations where token = (select v from public.t where k = 'inv')));
+  raise exception 'should fail';
+exception when others then
+  if sqlerrm = 'should fail' then raise; end if;
+end $$;
+select pg_temp.assert(true, 'member cannot revoke owner invitation');
+select public.revoke_invitation((select v::uuid from public.t where k = 'b_inv'));
+select pg_temp.assert((select revoked_at is not null from public.invitations where id = (select v::uuid from public.t where k = 'b_inv')), 'member can revoke own invitation');
+insert into public.t select 'b_inv2', (public.create_invitation((select v::uuid from public.t where k = 'album'))).id::text;
+
+select pg_temp.login('A');
+select pg_temp.assert((select count(*) from public.invitations where created_by = '00000000-0000-0000-0000-00000000000b') = 2, 'owner sees member invitations');
+select public.set_member_can_invite((select v::uuid from public.t where k = 'album'), '00000000-0000-0000-0000-00000000000b', false);
+select pg_temp.assert((select revoked_at is not null from public.invitations where id = (select v::uuid from public.t where k = 'b_inv2')), 'revoking permission revokes member invitations');
+select pg_temp.login('B');
+do $$ begin
+  perform public.create_invitation((select v::uuid from public.t where k = 'album'));
+  raise exception 'should fail';
+exception when others then
+  if sqlerrm <> 'forbidden' then raise; end if;
+end $$;
+select pg_temp.assert(true, 'member cannot invite after permission removed');
+
 -- ---------------------------------------------------------------- 写真アップロード
 select pg_temp.login('B');
 insert into public.t select 'up', public.begin_photo_upload(

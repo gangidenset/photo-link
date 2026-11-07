@@ -25,7 +25,7 @@ import {
 import { toast } from '@/components/toast';
 import { AlbumCover } from './AlbumCover';
 import { CoverPickerSheet } from './CoverPickerSheet';
-import { deleteAlbum, useAlbum, useAlbums, useMembers, useMyUsage, useSaveAlbum } from './api';
+import { deleteAlbum, useAlbum, useAlbums, useCanInvite, useMembers, useMyUsage, useSaveAlbum } from './api';
 
 // ---------------------------------------------------------------- アルバム一覧
 export function AlbumsPage() {
@@ -165,6 +165,7 @@ export function AlbumDetailPage() {
   const canBulkSave = hasFeature(usage?.plan, 'bulk_download');
   const navigate = useNavigate();
   const isOwner = album?.owner_id === userId;
+  const canInvite = useCanInvite(albumId, userId);
 
   const list = useMemo(() => photos.data?.pages.flat() ?? [], [photos.data]);
   // オーナーは全員の写真、メンバーは自分の写真だけ削除できる (DB 側でも同じ制限)
@@ -452,6 +453,11 @@ export function AlbumDetailPage() {
                 {loadingOthers ? '読み込み中…' : 'アルバムの写真をすべて保存 (自分の写真も含む)'}
               </SheetItem>
             </>
+          )}
+          {canInvite && !isOwner && (
+            <SheetItem icon={<UserPlus className="size-5" />} to={`/albums/${album.id}/invite`}>
+              メンバーを招待
+            </SheetItem>
           )}
           {isOwner && (
             <>

@@ -21,6 +21,7 @@ const MESSAGES: Record<string, string> = {
   invitation_expired: 'この招待の有効期限が切れています。',
   invitation_used_up: 'この招待は利用回数の上限に達しています。',
   already_decided: 'このリクエストは既に処理されています。',
+  member_not_found: 'メンバーが見つかりません。',
   duplicate: '同じ写真が既にアルバムにあります。',
   unsupported_type: '対応していないファイル形式です。',
   invalid_size: 'ファイルサイズが不正です。',
