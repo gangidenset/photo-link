@@ -2,10 +2,14 @@
 
 使い方: npm run icons   (Python 3 + Pillow が必要: pip install pillow)
 
-元画像は「白い背景の上に角丸の四角形」のデザインのため、用途ごとに作り分ける。
-  - icon-192 / icon-512 / favicon: 角の白い部分を透明にする
-  - apple-touch-icon / maskable: OS が自分で角丸や円に切り抜くため、四角いっぱいに絵を広げる
-    (白い角の部分は、ぼかした元画像で埋める)
+元画像のデザインに応じて、用途ごとに作り分ける。
+  A. 白い背景の上に角丸の四角形があるデザイン
+     - icon-192 / icon-512 / favicon: 角の白い部分を透明にする
+     - apple-touch-icon / maskable: 白い角の部分を、ぼかした元画像で埋めて四角いっぱいに広げる
+  B. 背景が四隅まで広がっているデザイン (単色の背景など)
+     - icon-192 / icon-512 / favicon: 角を丸く切り抜く
+     - apple-touch-icon: そのまま (iPhone が自分で角を丸める)
+     - maskable: Android の円形切り抜きに収まるよう縮小し、背景色で余白を埋める
 """
 from pathlib import Path
 
@@ -74,15 +78,54 @@ def save(img: Image.Image, path: Path, size: int) -> None:
     print("generated", path.relative_to(ROOT))
 
 
+def has_white_corners(img: Image.Image) -> bool:
+    rgb = img.convert("RGB")
+    w, h = rgb.size
+    return all(min(rgb.getpixel(xy)) > 235 for xy in [(2, 2), (w - 3, 2), (2, h - 3), (w - 3, h - 3)])
+
+
+def rounded_corners(img: Image.Image, radius_ratio: float = 0.225) -> Image.Image:
+    """角を丸く切り抜く (アプリアイコン風)。4 倍で描いて縮小し、縁を滑らかにする"""
+    out = img.convert("RGBA")
+    w, h = out.size
+    big = Image.new("L", (w * 4, h * 4), 0)
+    ImageDraw.Draw(big).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), radius=int(w * 4 * radius_ratio), fill=255)
+    out.putalpha(big.resize((w, h), Image.LANCZOS))
+    return out
+
+
+def corner_color(img: Image.Image) -> tuple[int, int, int]:
+    rgb = img.convert("RGB")
+    w, h = rgb.size
+    pts = [rgb.getpixel(xy) for xy in [(4, 4), (w - 5, 4), (4, h - 5), (w - 5, h - 5)]]
+    return tuple(sum(c[i] for c in pts) // len(pts) for i in range(3))  # type: ignore[return-value]
+
+
+def padded(img: Image.Image, scale: float) -> Image.Image:
+    """背景色の上に縮小して配置 (maskable 用)"""
+    w, h = img.size
+    canvas = Image.new("RGB", (w, h), corner_color(img))
+    small = img.convert("RGB").resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    canvas.paste(small, ((w - small.width) // 2, (h - small.height) // 2))
+    return canvas
+
+
 def main() -> None:
     src = Image.open(SRC)
-    rounded = transparent_corners(src)
+    if has_white_corners(src):
+        rounded = transparent_corners(src)
+        apple = full_bleed(src)
+        # maskable: Android は中央 80% の円を残して切り抜くため、絵を縮小して余白を取る
+        mask = maskable(src, scale=0.86)
+    else:
+        rounded = rounded_corners(src)
+        apple = src.convert("RGB")
+        mask = padded(src, scale=0.82)
     save(rounded, PUBLIC / "icons" / "icon-192.png", 192)
     save(rounded, PUBLIC / "icons" / "icon-512.png", 512)
     save(rounded, PUBLIC / "favicon.png", 64)
-    save(full_bleed(src), PUBLIC / "apple-touch-icon.png", 180)
-    # maskable: Android は中央 80% の円を残して切り抜くため、絵を縮小して余白を取る
-    save(maskable(src, scale=0.86), PUBLIC / "icons" / "icon-maskable-512.png", 512)
+    save(apple, PUBLIC / "apple-touch-icon.png", 180)
+    save(mask, PUBLIC / "icons" / "icon-maskable-512.png", 512)
 
 
 if __name__ == "__main__":
