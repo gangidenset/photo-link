@@ -13,7 +13,7 @@ function AuthShell({ title, subtitle, children }: { title: string; subtitle?: st
   return (
     <main className="pt-safe pb-safe px-safe mx-auto flex min-h-dvh max-w-md flex-col justify-center py-10">
       <div className="mb-8 text-center">
-        <img src="/favicon.svg" alt="" className="mx-auto mb-4 size-16 rounded-2xl shadow-sm" />
+        <img src="/icons/icon-192.png" alt="" className="mx-auto mb-4 size-20" />
         <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
         {subtitle && <p className="mt-2 text-sm text-ink-2">{subtitle}</p>}
       </div>

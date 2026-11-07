@@ -11,7 +11,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'PhotoLink',
         short_name: 'PhotoLink',
@@ -33,7 +33,7 @@ export default defineConfig({
         // アプリ本体 (HTML/JS/CSS/アイコン) のみキャッシュ。写真は署名付き URL のためキャッシュしない
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // HEIC 変換ライブラリ (約 1.3MB) は必要な端末だけが必要な時に読み込む
-        globIgnores: ['**/heic2any-*.js'],
+        globIgnores: ['**/heic2any-*.js', 'icons/**'], // ホーム画面用アイコンはインストール時に OS が取得する
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/auth\/callback/],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
