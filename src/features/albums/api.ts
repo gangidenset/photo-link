@@ -94,11 +94,23 @@ export function useMyUsage() {
 
 export function useSaveAlbum() {
   return useMutation({
-    mutationFn: async (input: { id?: string; title: string; description: string; ownerId: string }) => {
+    mutationFn: async (input: {
+      id?: string;
+      title: string;
+      description: string;
+      ownerId: string;
+      membersCanInvite?: boolean;
+      membersCanChangeCover?: boolean;
+    }) => {
       if (input.id) {
         const { error } = await supabase
           .from('albums')
-          .update({ title: input.title, description: input.description })
+          .update({
+            title: input.title,
+            description: input.description,
+            ...(input.membersCanInvite !== undefined ? { members_can_invite: input.membersCanInvite } : {}),
+            ...(input.membersCanChangeCover !== undefined ? { members_can_change_cover: input.membersCanChangeCover } : {}),
+          })
           .eq('id', input.id);
         if (error) throw error;
         return input.id;
@@ -120,7 +132,8 @@ export function useSaveAlbum() {
 }
 
 export async function setAlbumCover(albumId: string, photoId: string) {
-  const { error } = await supabase.from('albums').update({ cover_photo_id: photoId }).eq('id', albumId);
+  // メンバーにも許可されている場合があるため、権限確認付きの関数で変更する
+  const { error } = await supabase.rpc('set_album_cover', { p_album_id: albumId, p_photo_id: photoId });
   if (error) throw error;
   void queryClient.invalidateQueries({ queryKey: ['albums'] });
   void queryClient.invalidateQueries({ queryKey: ['album', albumId] });
@@ -161,11 +174,20 @@ export async function deleteAlbum(albumId: string) {
   void queryClient.invalidateQueries({ queryKey: ['usage'] });
 }
 
-/** 自分がこのアルバムに招待できるか (オーナー、または権限を付与されたメンバー) */
+/** 自分がこのアルバムに招待できるか (オーナー / アルバム全体で許可 / 個別に許可) */
 export function useCanInvite(albumId: string | undefined, userId: string | null) {
+  const { data: album } = useAlbum(albumId);
   const { data: members } = useMembers(albumId);
   const me = members?.find((m) => m.user_id === userId);
-  return !!me && (me.role === 'owner' || me.can_invite);
+  return !!me && (me.role === 'owner' || !!album?.members_can_invite || me.can_invite);
+}
+
+/** 自分がカバー画像を変更できるか (オーナー / アルバム全体で許可) */
+export function useCanChangeCover(albumId: string | undefined, userId: string | null) {
+  const { data: album } = useAlbum(albumId);
+  const { data: members } = useMembers(albumId);
+  const me = members?.find((m) => m.user_id === userId);
+  return !!me && (me.role === 'owner' || !!album?.members_can_change_cover);
 }
 
 export async function setMemberCanInvite(albumId: string, userId: string, canInvite: boolean) {

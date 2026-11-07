@@ -25,7 +25,7 @@ import {
 import { toast } from '@/components/toast';
 import { AlbumCover } from './AlbumCover';
 import { CoverPickerSheet } from './CoverPickerSheet';
-import { deleteAlbum, useAlbum, useAlbums, useCanInvite, useMembers, useMyUsage, useSaveAlbum } from './api';
+import { deleteAlbum, useAlbum, useAlbums, useCanChangeCover, useCanInvite, useMembers, useMyUsage, useSaveAlbum } from './api';
 
 // ---------------------------------------------------------------- アルバム一覧
 export function AlbumsPage() {
@@ -89,17 +89,27 @@ export function AlbumFormPage() {
   const [title, setTitle] = useState<string | null>(null);
   const [description, setDescription] = useState<string | null>(null);
   const [coverOpen, setCoverOpen] = useState(false);
+  const [membersCanInvite, setMembersCanInvite] = useState<boolean | null>(null);
+  const [membersCanChangeCover, setMembersCanChangeCover] = useState<boolean | null>(null);
 
   if (isEdit && isLoading) return <FullPageSpinner />;
   if (isEdit && (!album || album.owner_id !== userId)) return <Navigate to={`/albums/${albumId}`} replace />;
 
   const t = title ?? album?.title ?? '';
   const d = description ?? album?.description ?? '';
+  const invitePerm = membersCanInvite ?? album?.members_can_invite ?? true;
+  const coverPerm = membersCanChangeCover ?? album?.members_can_change_cover ?? true;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     try {
-      const id = await save.mutateAsync({ id: albumId, title: t.trim(), description: d.trim(), ownerId: userId! });
+      const id = await save.mutateAsync({
+        id: albumId,
+        title: t.trim(),
+        description: d.trim(),
+        ownerId: userId!,
+        ...(isEdit ? { membersCanInvite: invitePerm, membersCanChangeCover: coverPerm } : {}),
+      });
       toast(isEdit ? 'アルバムを更新しました' : 'アルバムを作成しました');
       navigate(isEdit ? `/albums/${id}` : `/albums/${id}/upload`, { replace: true });
     } catch {
@@ -126,6 +136,23 @@ export function AlbumFormPage() {
               </div>
             </div>
           )}
+          {isEdit && (
+            <fieldset className="rounded-2xl border border-line p-4">
+              <legend className="px-1 text-sm font-medium text-ink-2">メンバーの権限</legend>
+              <PermissionSwitch
+                label="メンバー全員が招待できる"
+                description="オフにすると、メンバー画面で「招待」をオンにした人だけが招待できます。"
+                checked={invitePerm}
+                onChange={setMembersCanInvite}
+              />
+              <PermissionSwitch
+                label="メンバー全員がカバー画像を変更できる"
+                description="オフにすると、カバー画像を変更できるのはオーナーだけになります。"
+                checked={coverPerm}
+                onChange={setMembersCanChangeCover}
+              />
+            </fieldset>
+          )}
           <ErrorBox message={save.error ? toMessage(save.error) : null} />
           <Button type="submit" block loading={save.isPending} disabled={!t.trim()}>
             {isEdit ? '保存する' : '作成して写真を追加'}
@@ -136,6 +163,29 @@ export function AlbumFormPage() {
         <CoverPickerSheet open={coverOpen} onClose={() => setCoverOpen(false)} albumId={album.id} currentCoverId={album.cover_photo_id} />
       )}
     </>
+  );
+}
+
+function PermissionSwitch({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start justify-between gap-4 py-2">
+      <span className="text-sm">
+        <span className="font-medium">{label}</span>
+        <span className="mt-0.5 block text-xs text-ink-3">{description}</span>
+      </span>
+      <input type="checkbox" role="switch" className="peer sr-only" checked={checked} onChange={(e) => onChange(e.target.checked)} aria-label={label} />
+      <span className="relative mt-0.5 h-6 w-10 shrink-0 rounded-full bg-line transition peer-checked:bg-accent after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-4" />
+    </label>
   );
 }
 
@@ -166,6 +216,7 @@ export function AlbumDetailPage() {
   const navigate = useNavigate();
   const isOwner = album?.owner_id === userId;
   const canInvite = useCanInvite(albumId, userId);
+  const canChangeCover = useCanChangeCover(albumId, userId);
 
   const list = useMemo(() => photos.data?.pages.flat() ?? [], [photos.data]);
   // オーナーは全員の写真、メンバーは自分の写真だけ削除できる (DB 側でも同じ制限)
@@ -410,7 +461,7 @@ export function AlbumDetailPage() {
         </div>
       )}
 
-      {isOwner && (
+      {canChangeCover && (
         <CoverPickerSheet open={coverOpen} onClose={() => setCoverOpen(false)} albumId={album.id} currentCoverId={album.cover_photo_id} />
       )}
 
@@ -459,6 +510,17 @@ export function AlbumDetailPage() {
               メンバーを招待
             </SheetItem>
           )}
+          {canChangeCover && album.photo_count > 0 && (
+            <SheetItem
+              icon={<ImageIcon className="size-5" />}
+              onClick={() => {
+                setMenuOpen(false);
+                setCoverOpen(true);
+              }}
+            >
+              カバー画像を変更
+            </SheetItem>
+          )}
           {isOwner && (
             <>
               <SheetItem icon={<UserPlus className="size-5" />} to={`/albums/${album.id}/invite`}>
@@ -467,17 +529,7 @@ export function AlbumDetailPage() {
               <SheetItem icon={<Pencil className="size-5" />} to={`/albums/${album.id}/edit`}>
                 アルバムを編集
               </SheetItem>
-              {album.photo_count > 0 && (
-                <SheetItem
-                  icon={<ImageIcon className="size-5" />}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setCoverOpen(true);
-                  }}
-                >
-                  カバー画像を変更
-                </SheetItem>
-              )}
+
               <SheetItem icon={<Trash2 className="size-5" />} danger onClick={onDelete}>
                 {deleting ? '削除中…' : 'アルバムを削除'}
               </SheetItem>
