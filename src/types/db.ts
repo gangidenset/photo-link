@@ -89,6 +89,8 @@ export interface Photo {
   duration_sec: number | null;
   original_filename: string;
   content_hash: string;
+  /** 見た目の指紋 (端末の写真との照合用。古い写真は null) */
+  phash: string | null;
   taken_at: string | null;
   sort_at: string;
   created_at: string;

@@ -145,20 +145,38 @@ export async function markDownloaded(photos: Pick<PhotoWithUploader, 'id' | 'alb
   }
 }
 
-/** アルバム内の「自分以外が投稿した」写真をすべて取得 (画面に読み込み済みかどうかに関係なく) */
-export async function fetchOthersPhotos(albumId: string, userId: string): Promise<PhotoWithUploader[]> {
+/** 保存済みの記録を取り消す (端末と照合して、実際には持っていなかった写真) */
+export async function unmarkDownloaded(photos: Pick<PhotoWithUploader, 'id' | 'album_id'>[]) {
+  for (let i = 0; i < photos.length; i += 100) {
+    const { error } = await supabase
+      .from('photo_downloads')
+      .delete()
+      .in('photo_id', photos.slice(i, i + 100).map((p) => p.id));
+    if (error) console.warn('unmark downloaded failed', error);
+  }
+  for (const albumId of new Set(photos.map((p) => p.album_id))) {
+    void queryClient.invalidateQueries({ queryKey: ['downloads', albumId] });
+  }
+}
+
+/**
+ * アルバム内の写真をすべて取得 (画面に読み込み済みかどうかに関係なく)
+ * @param excludeUploaderId 指定するとその人の投稿を除く (「他のメンバーの写真」用)
+ */
+export async function fetchAllAlbumPhotos(albumId: string, excludeUploaderId?: string): Promise<PhotoWithUploader[]> {
   const all: PhotoWithUploader[] = [];
   const PAGE = 1000;
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
+    let q = supabase
       .from('photos')
       .select(PHOTO_SELECT)
       .eq('album_id', albumId)
       .eq('status', 'ready')
-      .neq('uploader_id', userId)
       .order('sort_at', { ascending: false })
       .order('id', { ascending: false })
       .range(from, from + PAGE - 1);
+    if (excludeUploaderId) q = q.neq('uploader_id', excludeUploaderId);
+    const { data, error } = await q;
     if (error) throw error;
     all.push(...((data ?? []) as unknown as PhotoWithUploader[]));
     if (!data || data.length < PAGE) break;
