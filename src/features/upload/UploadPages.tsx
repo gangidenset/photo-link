@@ -5,6 +5,7 @@ import { useAlbum } from '@/features/albums/api';
 import { formatBytes } from '@/lib/format';
 import { Button, EmptyState, FullPageSpinner, IconButton, PageHeader, ProgressBar } from '@/components/ui';
 import { ACCEPT_ATTR } from './fileTypes';
+import { useUploadQuality } from './quality';
 import { isActive, isAutoRetrying, summarize, useUploadStore, type UploadItem } from './uploadStore';
 
 // ---------------------------------------------------------------- 選択済みファイルのプレビュー
@@ -69,6 +70,7 @@ export function UploadPickerPage() {
   const cameraInput = useRef<HTMLInputElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
   const enqueue = useUploadStore((s) => s.enqueue);
+  const quality = useUploadQuality((s) => s.quality);
   const navigate = useNavigate();
 
   const totalBytes = useMemo(() => files.reduce((n, f) => n + f.size, 0), [files]);
@@ -97,9 +99,14 @@ export function UploadPickerPage() {
     <>
       <PageHeader title="写真・動画を追加" back={`/albums/${albumId}`} />
       <main className={`px-safe mx-auto max-w-3xl py-4 ${files.length > 0 ? 'pb-24' : ''}`}>
-        <p className="mb-4 text-sm text-ink-2">
-          投稿先: <span className="font-semibold text-ink">{album.title}</span>
-        </p>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-ink-2">
+          <p>
+            投稿先: <span className="font-semibold text-ink">{album.title}</span>
+          </p>
+          <Link to="/settings" className="rounded-full bg-surface-2 px-3 py-1 text-xs">
+            画質: {quality === 'standard' ? '容量優先' : 'オリジナル'} ・ 変更
+          </Link>
+        </div>
 
         {/* iOS / Android 共通: 標準のファイル選択 (写真ライブラリ・カメラ) を使う */}
         <input
@@ -166,7 +173,7 @@ export function UploadPickerPage() {
         ) : (
           <div className="mt-8 rounded-2xl border border-dashed border-line p-6 text-center text-sm text-ink-2">
             <p>複数の写真・動画をまとめて選べます。</p>
-            <p className="mt-1 text-xs text-ink-3">写真は元の画質のまま保存されます。位置情報 (GPS) は自動的に削除されます。</p>
+            <p className="mt-1 text-xs text-ink-3">位置情報 (GPS) は自動的に削除されます。</p>
           </div>
         )}
       </main>

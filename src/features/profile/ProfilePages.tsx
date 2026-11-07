@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { Camera, ChevronRight, FileText, HardDrive, LogOut, Moon, Settings, Shield, Smartphone, Trash2, UploadCloud } from 'lucide-react';
+import { Camera, ChevronRight, FileText, HardDrive, ImageIcon, LogOut, Moon, Settings, Shield, Smartphone, Trash2, UploadCloud } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { queryClient } from '@/lib/queryClient';
 import { toMessage } from '@/lib/errors';
@@ -10,6 +10,7 @@ import { useTheme, type ThemePref } from '@/lib/theme';
 import { useAuth, useMyProfile } from '@/features/auth/AuthProvider';
 import { useMyUsage } from '@/features/albums/api';
 import { useUploadStore } from '@/features/upload/uploadStore';
+import { STANDARD_MAX_EDGE, useUploadQuality, type UploadQuality } from '@/features/upload/quality';
 import { Avatar, Button, ErrorBox, FullPageSpinner, PageHeader, ProgressBar, TextField } from '@/components/ui';
 import { toast } from '@/components/toast';
 import { IosInstallGuide, useInstallState } from './install';
@@ -196,6 +197,8 @@ export function SettingsPage() {
   const { pref, setPref } = useTheme();
   const concurrency = useUploadStore((s) => s.concurrency);
   const setConcurrency = useUploadStore((s) => s.setConcurrency);
+  const quality = useUploadQuality((s) => s.quality);
+  const setQuality = useUploadQuality((s) => s.setQuality);
   const install = useInstallState();
   const [guide, setGuide] = useState(false);
   const [confirmText, setConfirmText] = useState('');
@@ -250,6 +253,36 @@ export function SettingsPage() {
               </button>
             ))}
           </div>
+        </Section>
+
+        <Section title="保存する画質" icon={<ImageIcon className="size-5" />}>
+          <div className="space-y-2" role="radiogroup" aria-label="保存する画質">
+            {(
+              [
+                ['standard', '容量優先 (おすすめ)', `長辺 ${STANDARD_MAX_EDGE}px の JPEG で保存します。1 枚あたり約 0.5〜1MB で、オリジナルの約 4〜5 倍の枚数を保存できます。スマホで見る分には違いはほぼ分かりません。`],
+                ['original', '画質優先 (オリジナル)', '撮影したままの画質で保存します。印刷や大きな画面での表示に向いていますが、1 枚あたり約 2〜5MB を使います。'],
+              ] as [UploadQuality, string, string][]
+            ).map(([value, label, desc]) => (
+              <button
+                key={value}
+                role="radio"
+                aria-checked={quality === value}
+                onClick={() => setQuality(value)}
+                className={`w-full rounded-xl border p-3 text-left transition ${quality === value ? 'border-accent bg-accent-soft' : 'border-line'}`}
+              >
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  <span className={`flex size-4 items-center justify-center rounded-full border-2 ${quality === value ? 'border-accent' : 'border-ink-3'}`}>
+                    {quality === value && <span className="size-2 rounded-full bg-accent" />}
+                  </span>
+                  {label}
+                </span>
+                <span className="mt-1 block pl-6 text-xs text-ink-2">{desc}</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-ink-3">
+            これからアップロードする写真に適用されます (この端末のみ)。すでに保存した写真は変わりません。動画は常にそのまま保存します。
+          </p>
         </Section>
 
         <Section title="アップロード" icon={<UploadCloud className="size-5" />}>

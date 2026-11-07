@@ -9,6 +9,7 @@ import { queryClient } from '@/lib/queryClient';
 import { errorCode, isNetworkError, toMessage } from '@/lib/errors';
 import type { MediaType } from '@/types/db';
 import type { UploadHandle } from './transport';
+import { useUploadQuality } from './quality';
 
 // 画像処理・送信のコードはアップロード開始時に読み込む (初回表示を軽くする)
 const loadPipeline = () =>
@@ -201,7 +202,7 @@ async function processItem(id: string) {
     if (!type) throw new Error('unsupported_type');
     patch(id, { mediaType: type.mediaType });
 
-    const prepared = await prepareMedia(item.file, type.mime, type.mediaType);
+    const prepared = await prepareMedia(item.file, type.mime, type.mediaType, useUploadQuality.getState().quality);
     assertNotCanceled();
     setProgress(id, 0.05);
 
@@ -226,7 +227,7 @@ async function processItem(id: string) {
     const { data, error } = await supabase.rpc('begin_photo_upload', {
       p_album_id: item.albumId,
       p_media_type: type.mediaType,
-      p_mime_type: type.mime,
+      p_mime_type: prepared.mime,
       p_size_bytes: prepared.original.size,
       p_content_hash: prepared.contentHash,
       p_original_filename: item.name.slice(0, 255),
@@ -251,7 +252,7 @@ async function processItem(id: string) {
     const parts: { path: string; blob: Blob; type: string }[] = [];
     if (reserved.thumb_path && prepared.thumb) parts.push({ path: reserved.thumb_path, blob: prepared.thumb, type: 'image/jpeg' });
     if (reserved.preview_path && prepared.preview) parts.push({ path: reserved.preview_path, blob: prepared.preview, type: 'image/jpeg' });
-    parts.push({ path: reserved.storage_path, blob: prepared.original, type: type.mime });
+    parts.push({ path: reserved.storage_path, blob: prepared.original, type: prepared.mime });
     const total = parts.reduce((n, p) => n + p.blob.size, 0);
     let doneBytes = 0;
     for (const part of parts) {
