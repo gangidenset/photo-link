@@ -9,6 +9,7 @@ import { queryClient } from '@/lib/queryClient';
 import { errorCode, isNetworkError, toMessage } from '@/lib/errors';
 import type { MediaType } from '@/types/db';
 import type { UploadHandle } from './transport';
+import { useUploadQuality } from './quality';
 
 // 画像処理・送信のコードはアップロード開始時に読み込む (初回表示を軽くする)
 const loadPipeline = () =>
@@ -52,6 +53,8 @@ interface UploadState {
 const FINISHED: UploadStatus[] = ['done', 'duplicate', 'canceled'];
 export const isActive = (s: UploadStatus) => s === 'preparing' || s === 'uploading' || s === 'finalizing';
 export const isFinished = (s: UploadStatus) => FINISHED.includes(s);
+const AUTO_RETRY_MESSAGE = '通信エラー。自動で再試行します…';
+export const isAutoRetrying = (i: Pick<UploadItem, 'status' | 'error'>) => i.status === 'error' && i.error === AUTO_RETRY_MESSAGE;
 
 const MAX_AUTO_RETRY = 3;
 const BACKOFF_MS = [2000, 5000, 10000];
@@ -199,7 +202,7 @@ async function processItem(id: string) {
     if (!type) throw new Error('unsupported_type');
     patch(id, { mediaType: type.mediaType });
 
-    const prepared = await prepareMedia(item.file, type.mime, type.mediaType);
+    const prepared = await prepareMedia(item.file, type.mime, type.mediaType, useUploadQuality.getState().quality);
     assertNotCanceled();
     setProgress(id, 0.05);
 
@@ -224,7 +227,7 @@ async function processItem(id: string) {
     const { data, error } = await supabase.rpc('begin_photo_upload', {
       p_album_id: item.albumId,
       p_media_type: type.mediaType,
-      p_mime_type: type.mime,
+      p_mime_type: prepared.mime,
       p_size_bytes: prepared.original.size,
       p_content_hash: prepared.contentHash,
       p_original_filename: item.name.slice(0, 255),
@@ -249,7 +252,7 @@ async function processItem(id: string) {
     const parts: { path: string; blob: Blob; type: string }[] = [];
     if (reserved.thumb_path && prepared.thumb) parts.push({ path: reserved.thumb_path, blob: prepared.thumb, type: 'image/jpeg' });
     if (reserved.preview_path && prepared.preview) parts.push({ path: reserved.preview_path, blob: prepared.preview, type: 'image/jpeg' });
-    parts.push({ path: reserved.storage_path, blob: prepared.original, type: type.mime });
+    parts.push({ path: reserved.storage_path, blob: prepared.original, type: prepared.mime });
     const total = parts.reduce((n, p) => n + p.blob.size, 0);
     let doneBytes = 0;
     for (const part of parts) {
@@ -284,7 +287,7 @@ async function processItem(id: string) {
     } else {
       const attempts = (get()?.attempts ?? 0) + 1;
       if (isNetworkError(err) && attempts < MAX_AUTO_RETRY) {
-        patch(id, { status: 'error', error: '通信エラー。自動で再試行します…', attempts });
+        patch(id, { status: 'error', error: AUTO_RETRY_MESSAGE, attempts });
         setTimeout(() => {
           const cur = get();
           if (cur && cur.status === 'error' && !canceled.has(id)) {
@@ -356,8 +359,9 @@ export function summarize(items: UploadItem[]) {
     total: relevant.length,
     done: relevant.filter((i) => i.status === 'done').length,
     duplicates: relevant.filter((i) => i.status === 'duplicate').length,
-    failed: relevant.filter((i) => i.status === 'error' && !i.error?.includes('自動で再試行')).length,
-    remaining: relevant.filter((i) => !isFinished(i.status) && i.status !== 'error').length,
+    failed: relevant.filter((i) => i.status === 'error' && !isAutoRetrying(i)).length,
+    // 自動再試行の待ち時間中もまだ終わっていない扱い (完了表示が早く出ないように)
+    remaining: relevant.filter((i) => !isFinished(i.status) && (i.status !== 'error' || isAutoRetrying(i))).length,
     percent: Math.round((doneBytes / totalBytes) * 100),
   };
 }

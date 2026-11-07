@@ -285,6 +285,45 @@ function withGpsExif(jpeg) {
   return Buffer.concat([jpeg.subarray(0, 2), seg, payload, jpeg.subarray(2)]);
 }
 
+/** JPEG の幅・高さ (SOF マーカーから読む) */
+function jpegSize(buf) {
+  let o = 2;
+  while (o + 9 < buf.length) {
+    if (buf[o] !== 0xff) return null;
+    const marker = buf[o + 1];
+    const len = buf.readUInt16BE(o + 2);
+    if (marker >= 0xc0 && marker <= 0xc3) return { height: buf.readUInt16BE(o + 5), width: buf.readUInt16BE(o + 7) };
+    o += 2 + len;
+  }
+  return null;
+}
+
+/** 大きな写真 (4000x3000) を生成 */
+async function makeLargeJpeg(browser, seed) {
+  const p = await browser.newPage();
+  const b64 = await p.evaluate(async (seed) => {
+    const c = document.createElement('canvas');
+    c.width = 4000;
+    c.height = 3000;
+    const ctx = c.getContext('2d');
+    const g = ctx.createLinearGradient(0, 0, 4000, 3000);
+    g.addColorStop(0, `hsl(${seed * 50} 70% 60%)`);
+    g.addColorStop(1, `hsl(${seed * 50 + 120} 70% 40%)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 4000, 3000);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 600px sans-serif';
+    ctx.fillText(`L${seed}`, 1200, 1800);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.95));
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    let s = '';
+    for (const x of buf) s += String.fromCharCode(x);
+    return btoa(s);
+  }, seed);
+  await p.close();
+  return Buffer.from(b64, 'base64');
+}
+
 // ---------------------------------------------------------------- 実行
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -530,6 +569,63 @@ for (const [label, device] of [
     const previews = [...mock.state.uploads.keys()].filter((k) => k.endsWith('preview.jpg')).length;
     check('iPhone: 写真の見た目の指紋 (phash) を送信', (mock.state.phashes ?? 0) >= 120, `phash=${mock.state.phashes}`);
     check('iPhone: サムネイル・プレビューを生成して送信', thumbs >= 120 && previews >= 120, `thumbs=${thumbs} previews=${previews}`);
+
+    // 完了表示は数秒後に自動で消える
+    const extra = await makeJpegs(browser, 2);
+    await page.getByRole('link', { name: 'アルバムを見る' }).click().catch(() => undefined);
+    await page.getByRole('link', { name: '追加' }).click();
+    await page.locator('input[type=file][multiple]').setInputFiles(extra.map((buf, i) => ({ name: `EXTRA_${i}.JPG`, mimeType: 'image/jpeg', buffer: Buffer.concat([buf, Buffer.from([i])]) })));
+    await page.getByRole('button', { name: '2 件をアップロード' }).click();
+    await page.getByText('完了しました').waitFor({ timeout: 30000 });
+    await page.getByRole('link', { name: 'アルバムを見る' }).click();
+    const banner = page.getByRole('status').filter({ hasText: 'アップロード完了' });
+    const shown = await banner.waitFor({ timeout: 2000 }).then(() => true).catch(() => false);
+    await page.screenshot({ path: `${OUT}/${label}-18-banner.png` });
+    await page.waitForTimeout(4600);
+    check('iPhone: アップロード完了の表示が数秒後に自動で消える', shown && (await banner.count()) === 0, `shown=${shown}`);
+
+    // 保存する画質: 既定は容量優先 (長辺 2048px)、設定でオリジナルに切り替え
+    const uploadLarge = async (buf, name) => {
+      const before = new Set(mock.state.uploads.keys());
+      await page.goto(`${BASE}/albums/${ALBUM_ID}/upload`);
+      await page.locator('input[type=file][multiple]').setInputFiles([{ name, mimeType: 'image/jpeg', buffer: buf }]);
+      await page.getByRole('button', { name: '1 件をアップロード' }).click();
+      await page.getByText('完了しました').waitFor({ timeout: 30000 });
+      const key = [...mock.state.uploads.keys()].find((k) => !before.has(k) && k.endsWith('original.jpg'));
+      const previewSent = [...mock.state.uploads.keys()].some((k) => !before.has(k) && k.endsWith('preview.jpg'));
+      return { buf: key ? mock.state.uploads.get(key) : null, previewSent };
+    };
+    const large1 = await makeLargeJpeg(browser, 1);
+    await page.goto(`${BASE}/albums/${ALBUM_ID}/upload`);
+    const qualityLink = page.getByRole('link', { name: /画質: 容量優先/ });
+    check('iPhone: 投稿画面に現在の画質を表示 (既定は容量優先)', await qualityLink.waitFor({ timeout: 5000 }).then(() => true).catch(() => false));
+    const std = await uploadLarge(large1, 'LARGE_1.JPG');
+    const stdSize = std.buf && jpegSize(std.buf);
+    check(
+      'iPhone: 容量優先では長辺 2048px に縮小して保存 (プレビューは作らない)',
+      stdSize?.width === 2048 && stdSize?.height === 1536 && std.buf.length < large1.length && !std.previewSent,
+      `${stdSize?.width}x${stdSize?.height} ${std.buf?.length} < ${large1.length} preview=${std.previewSent}`,
+    );
+    await page.goto(`${BASE}/settings`);
+    await page.getByRole('radio', { name: /画質優先/ }).click();
+    const large2 = await makeLargeJpeg(browser, 2);
+    const orig = await uploadLarge(large2, 'LARGE_2.JPG');
+    const origSize = orig.buf && jpegSize(orig.buf);
+    check(
+      'iPhone: 画質優先に切り替えるとオリジナルのまま保存',
+      origSize?.width === 4000 && orig.buf.length === large2.length && orig.previewSent,
+      `${origSize?.width}x${origSize?.height} ${orig.buf?.length} == ${large2.length}`,
+    );
+
+    // 写真選択の画面を閉じてからファイルが届くまで「準備中」を表示
+    await page.goto(`${BASE}/albums/${ALBUM_ID}/upload`);
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'ライブラリ' }).click()]);
+    const overlay = page.getByRole('alertdialog', { name: '写真を準備しています' });
+    const overlayShown = await overlay.isVisible();
+    await page.screenshot({ path: `${OUT}/${label}-19-preparing.png` });
+    await chooser.setFiles(extra.map((buf, i) => ({ name: `PICK_${i}.JPG`, mimeType: 'image/jpeg', buffer: buf })));
+    await page.getByRole('button', { name: '2 件をアップロード' }).waitFor({ timeout: 5000 });
+    check('iPhone: 写真を選ぶ間は「準備しています」を表示し、届いたら消える', overlayShown && (await overlay.count()) === 0);
   }
 
   check(`${label}: コンソールエラーなし`, consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));

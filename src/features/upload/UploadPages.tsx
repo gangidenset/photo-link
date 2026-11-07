@@ -3,9 +3,11 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, Camera, CheckCircle2, Copy, Film, ImageIcon, Images, Loader2, RotateCw, Trash2, Video, X } from 'lucide-react';
 import { useAlbum } from '@/features/albums/api';
 import { formatBytes } from '@/lib/format';
+import { isIOS } from '@/lib/platform';
 import { Button, EmptyState, FullPageSpinner, IconButton, PageHeader, ProgressBar } from '@/components/ui';
 import { ACCEPT_ATTR } from './fileTypes';
-import { isActive, summarize, useUploadStore, type UploadItem } from './uploadStore';
+import { useUploadQuality } from './quality';
+import { isActive, isAutoRetrying, summarize, useUploadStore, type UploadItem } from './uploadStore';
 
 // ---------------------------------------------------------------- 選択済みファイルのプレビュー
 // 表示範囲に入ったものだけ画像を読み込む (100 枚以上選んでも重くならない)
@@ -69,7 +71,35 @@ export function UploadPickerPage() {
   const cameraInput = useRef<HTMLInputElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
   const enqueue = useUploadStore((s) => s.enqueue);
+  const quality = useUploadQuality((s) => s.quality);
   const navigate = useNavigate();
+  // 写真選択の画面を閉じてから、ファイルが届くまでの「準備中」表示
+  //   iPhone は選んだ写真・動画をブラウザに渡す前に変換 (HEIC → JPEG、動画の圧縮) や
+  //   iCloud からのダウンロードを行うため、数秒〜数十秒かかることがある
+  const [preparing, setPreparing] = useState(false);
+  const preparingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopPreparing = () => {
+    if (preparingTimer.current) clearTimeout(preparingTimer.current);
+    preparingTimer.current = null;
+    setPreparing(false);
+  };
+
+  function openPicker(input: HTMLInputElement | null) {
+    if (!input) return;
+    setPreparing(true);
+    if (preparingTimer.current) clearTimeout(preparingTimer.current);
+    // 万一イベントが届かない環境でも、いつまでも残らないように
+    preparingTimer.current = setTimeout(() => setPreparing(false), 120_000);
+    input.click();
+  }
+
+  // 選択をキャンセルしたとき (Safari 16.4+ / Chrome 113+ の cancel イベント)
+  useEffect(() => {
+    const inputs = [libraryInput.current, cameraInput.current, videoInput.current].filter(Boolean) as HTMLInputElement[];
+    inputs.forEach((i) => i.addEventListener('cancel', stopPreparing));
+    return () => inputs.forEach((i) => i.removeEventListener('cancel', stopPreparing));
+  }, [album]);
 
   const totalBytes = useMemo(() => files.reduce((n, f) => n + f.size, 0), [files]);
   const videoCount = useMemo(() => files.filter((f) => f.type.startsWith('video/')).length, [files]);
@@ -97,9 +127,14 @@ export function UploadPickerPage() {
     <>
       <PageHeader title="写真・動画を追加" back={`/albums/${albumId}`} />
       <main className={`px-safe mx-auto max-w-3xl py-4 ${files.length > 0 ? 'pb-24' : ''}`}>
-        <p className="mb-4 text-sm text-ink-2">
-          投稿先: <span className="font-semibold text-ink">{album.title}</span>
-        </p>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-ink-2">
+          <p>
+            投稿先: <span className="font-semibold text-ink">{album.title}</span>
+          </p>
+          <Link to="/settings" className="rounded-full bg-surface-2 px-3 py-1 text-xs">
+            画質: {quality === 'standard' ? '容量優先' : 'オリジナル'} ・ 変更
+          </Link>
+        </div>
 
         {/* iOS / Android 共通: 標準のファイル選択 (写真ライブラリ・カメラ) を使う */}
         <input
@@ -109,6 +144,7 @@ export function UploadPickerPage() {
           multiple
           className="hidden"
           onChange={(e) => {
+            stopPreparing();
             addFiles(e.target.files);
             e.target.value = '';
           }}
@@ -120,6 +156,7 @@ export function UploadPickerPage() {
           capture="environment"
           className="hidden"
           onChange={(e) => {
+            stopPreparing();
             addFiles(e.target.files);
             e.target.value = '';
           }}
@@ -131,16 +168,37 @@ export function UploadPickerPage() {
           capture="environment"
           className="hidden"
           onChange={(e) => {
+            stopPreparing();
             addFiles(e.target.files);
             e.target.value = '';
           }}
         />
 
         <div className="grid grid-cols-3 gap-3">
-          <PickButton icon={<Images className="size-7" />} label="ライブラリ" onClick={() => libraryInput.current?.click()} primary />
-          <PickButton icon={<Camera className="size-7" />} label="写真を撮る" onClick={() => cameraInput.current?.click()} />
-          <PickButton icon={<Video className="size-7" />} label="動画を撮る" onClick={() => videoInput.current?.click()} />
+          <PickButton icon={<Images className="size-7" />} label="ライブラリ" onClick={() => openPicker(libraryInput.current)} primary />
+          <PickButton icon={<Camera className="size-7" />} label="写真を撮る" onClick={() => openPicker(cameraInput.current)} />
+          <PickButton icon={<Video className="size-7" />} label="動画を撮る" onClick={() => openPicker(videoInput.current)} />
         </div>
+
+        {preparing && (
+          <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6" role="alertdialog" aria-live="polite" aria-label="写真を準備しています">
+            <div className="w-full max-w-sm rounded-3xl bg-surface p-6 text-center shadow-2xl">
+              <Loader2 className="mx-auto size-8 animate-spin text-accent" />
+              <p className="mt-3 font-semibold">写真を準備しています…</p>
+              <p className="mt-2 text-sm text-ink-2">
+                選んだ写真や動画を読み込んでいます。枚数や動画が多いと、数十秒かかることがあります。
+              </p>
+              {isIOS() && (
+                <p className="mt-3 rounded-xl bg-surface-2 p-3 text-left text-xs text-ink-2">
+                  iPhone では、写真の変換や iCloud からのダウンロードに時間がかかります。写真を選ぶ画面の上部に「オプション」がある場合は、「現在」(または「最新」) を選ぶと速くなります。
+                </p>
+              )}
+              <button className="mt-4 text-sm text-ink-3 underline-offset-4 hover:underline" onClick={stopPreparing}>
+                閉じる
+              </button>
+            </div>
+          </div>
+        )}
 
         {files.length > 0 ? (
           <>
@@ -166,7 +224,7 @@ export function UploadPickerPage() {
         ) : (
           <div className="mt-8 rounded-2xl border border-dashed border-line p-6 text-center text-sm text-ink-2">
             <p>複数の写真・動画をまとめて選べます。</p>
-            <p className="mt-1 text-xs text-ink-3">写真は元の画質のまま保存されます。位置情報 (GPS) は自動的に削除されます。</p>
+            <p className="mt-1 text-xs text-ink-3">位置情報 (GPS) は自動的に削除されます。</p>
           </div>
         )}
       </main>
@@ -211,7 +269,7 @@ const STATUS_LABEL: Record<UploadItem['status'], string> = {
 const UploadRow = memo(function UploadRow({ item }: { item: UploadItem }) {
   const retry = useUploadStore((s) => s.retry);
   const remove = useUploadStore((s) => s.remove);
-  const autoRetrying = item.status === 'error' && item.error?.includes('自動で再試行');
+  const autoRetrying = isAutoRetrying(item);
   return (
     <li className="flex items-center gap-3 px-4 py-3">
       <span className="shrink-0">

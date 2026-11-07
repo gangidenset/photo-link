@@ -2,13 +2,16 @@
 import type { MediaType } from '@/types/db';
 import { processVideo, stripImageGps } from './privacy';
 import { dhashFromSource } from '@/features/photos/phash';
+import { STANDARD_JPEG_QUALITY, STANDARD_MAX_EDGE, type UploadQuality } from './quality';
 
 const THUMB_MAX = 480;
 const PREVIEW_MAX = 1600;
 
 export interface PreparedMedia {
-  /** アップロードするオリジナル (位置情報除去済み) */
+  /** アップロードするオリジナル (位置情報除去済み。容量優先なら縮小した JPEG) */
   original: Blob;
+  /** オリジナルの形式 (容量優先で縮小した場合は image/jpeg) */
+  mime: string;
   contentHash: string;
   takenAt: Date | null;
   width: number | null;
@@ -117,11 +120,45 @@ function releaseCanvas(c: HTMLCanvasElement) {
   c.height = 0;
 }
 
-async function imageDerivatives(blob: Blob, mime: string) {
+interface ImageDerived {
+  width: number | null;
+  height: number | null;
+  preview: Blob | null;
+  thumb: Blob | null;
+  phash: string | null;
+  /** 容量優先のときの縮小版 (元より大きくなる場合は null) */
+  standard: Blob | null;
+}
+
+async function imageDerivatives(blob: Blob, mime: string, quality: UploadQuality): Promise<ImageDerived> {
   return serialize(async () => {
     const img = await decodeImage(blob, mime);
     const w = img.naturalWidth;
     const h = img.naturalHeight;
+
+    // 容量優先: 長辺 2048px の JPEG を作る (アニメーション GIF は動きが消えるため対象外)
+    if (quality === 'standard' && mime !== 'image/gif') {
+      const stdCanvas = drawScaled(img, w, h, STANDARD_MAX_EDGE);
+      img.src = '';
+      const std = await toJpeg(stdCanvas, STANDARD_JPEG_QUALITY);
+      const thumbCanvas = drawScaled(stdCanvas, stdCanvas.width, stdCanvas.height, THUMB_MAX);
+      const thumb = await toJpeg(thumbCanvas, 0.75);
+      const phash = safeHash(thumbCanvas, thumbCanvas.width, thumbCanvas.height);
+      releaseCanvas(thumbCanvas);
+      if (std && std.size < blob.size) {
+        // 縮小版そのものを表示に使えるため、拡大表示用のプレビューは作らない (容量節約)
+        const dims = { width: stdCanvas.width, height: stdCanvas.height };
+        releaseCanvas(stdCanvas);
+        return { ...dims, preview: null, thumb, phash, standard: std };
+      }
+      // 元のほうが小さい (すでに小さい画像など) → 元のまま保存し、表示用プレビューを作る
+      const previewCanvas = drawScaled(stdCanvas, stdCanvas.width, stdCanvas.height, PREVIEW_MAX);
+      const preview = await toJpeg(previewCanvas, 0.82);
+      releaseCanvas(previewCanvas);
+      releaseCanvas(stdCanvas);
+      return { width: w, height: h, preview, thumb, phash, standard: null };
+    }
+
     const previewCanvas = drawScaled(img, w, h, PREVIEW_MAX);
     img.src = '';
     const preview = await toJpeg(previewCanvas, 0.82);
@@ -130,7 +167,7 @@ async function imageDerivatives(blob: Blob, mime: string) {
     const phash = safeHash(thumbCanvas, thumbCanvas.width, thumbCanvas.height);
     releaseCanvas(previewCanvas);
     releaseCanvas(thumbCanvas);
-    return { width: w, height: h, preview, thumb, phash };
+    return { width: w, height: h, preview, thumb, phash, standard: null };
   });
 }
 
@@ -192,7 +229,7 @@ function videoDerivatives(blob: Blob): Promise<VideoMeta> {
 }
 
 /** アップロード前の準備: GPS 除去・指紋・撮影日時・サムネイル */
-export async function prepareMedia(file: File, mime: string, mediaType: MediaType): Promise<PreparedMedia> {
+export async function prepareMedia(file: File, mime: string, mediaType: MediaType, quality: UploadQuality = 'original'): Promise<PreparedMedia> {
   if (mediaType === 'image') {
     // iCloud 上の写真はここで読み込みに失敗することがある (呼び出し側で再試行を案内)
     let bytes: Uint8Array;
@@ -205,19 +242,17 @@ export async function prepareMedia(file: File, mime: string, mediaType: MediaTyp
     const takenAt = await readTakenAt(file);
     stripImageGps(bytes, mime);
     const original = new Blob([bytes as BlobPart], { type: mime });
-    let derived: { width: number | null; height: number | null; preview: Blob | null; thumb: Blob | null; phash: string | null } = {
-      width: null,
-      height: null,
-      preview: null,
-      thumb: null,
-      phash: null,
-    };
+    let derived: ImageDerived = { width: null, height: null, preview: null, thumb: null, phash: null, standard: null };
     try {
-      derived = await imageDerivatives(original, mime);
+      derived = await imageDerivatives(original, mime, quality);
     } catch (e) {
+      // 読み込めない形式 (Chrome での HEIC など) は元のまま保存
       console.warn('thumbnail failed', e);
     }
-    return { original, contentHash, takenAt, durationSec: null, ...derived };
+    const { standard, ...rest } = derived;
+    // 重複判定の指紋 (contentHash) は元ファイルから作るため、画質設定が違っても同じ写真は重複と判定される
+    if (standard) return { original: standard, mime: 'image/jpeg', contentHash, takenAt, durationSec: null, ...rest };
+    return { original, mime, contentHash, takenAt, durationSec: null, ...rest };
   }
 
   let contentHash: string;
@@ -228,5 +263,5 @@ export async function prepareMedia(file: File, mime: string, mediaType: MediaTyp
   }
   const { blob, takenAt } = await processVideo(file, mime);
   const meta = await videoDerivatives(blob);
-  return { original: blob, contentHash, takenAt, preview: null, ...meta };
+  return { original: blob, mime, contentHash, takenAt, preview: null, ...meta };
 }
