@@ -9,7 +9,7 @@
     "preview": "vite preview --host",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "icons": "node scripts/generate-icons.mjs",
+    "icons": "python3 scripts/generate-icons.py",
     "test:db": "bash supabase/tests/run.sh",
     "test:e2e": "node e2e/mock-smoke.mjs"
   },

@@ -46,7 +46,7 @@ npm run dev
 | `npm test` | ユニットテスト |
 | `npm run test:db` | DB マイグレーション + RLS テスト (PostgreSQL が必要) |
 | `npm run test:e2e` | ブラウザ E2E (モック。手順は docs/TESTING.md) |
-| `npm run icons` | `public/favicon.svg` から PWA アイコンを生成 |
+| `npm run icons` | `assets/icon-source.png` から PWA アイコンを生成 (Python + Pillow) |
 
 ## ドキュメント
 
