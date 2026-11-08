@@ -11,7 +11,7 @@ function LegalLayout({ title, children }: { title: string; children: ReactNode }
   return (
     <>
       <PageHeader title={title} back />
-      <main className="px-safe pb-safe mx-auto max-w-2xl py-6 text-[15px] leading-7 [&_h2]:mt-8 [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-bold [&_li]:ml-5 [&_li]:list-disc [&_p]:mb-3">
+      <main className="px-safe pb-safe mx-auto max-w-2xl py-6 text-base leading-7 [&_h2]:mt-8 [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-bold [&_li]:ml-5 [&_li]:list-disc [&_p]:mb-3">
         {children}
         <p className="mt-10 text-sm text-ink-3">制定日: {UPDATED}</p>
       </main>

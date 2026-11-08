@@ -38,7 +38,7 @@ interface Props {
 
 const METHOD_NOTE: Record<BulkMethod, string> = {
   share: '準備ができたら「保存・共有する」をタップし、「画像を保存」を選ぶと写真アプリに保存されます。',
-  sequential: '1 件ずつ自動でダウンロードされます。「複数のファイルをダウンロード」の確認が出たら許可してください。',
+  sequential: '1 件ずつ自動で保存されます。「複数のファイルをダウンロード」の確認が出たら「許可」を押してください。',
   zip: 'ZIP ファイルにまとめてダウンロードされます。',
 };
 
@@ -260,7 +260,7 @@ export function BulkSaveSheet({ open, onClose, title, albumTitle, photos, savedI
           <div className="space-y-3 py-2">
             <ProgressBar value={progress.done / Math.max(progress.total, 1)} className="h-2" />
             <p className="text-sm text-ink-2">
-              {method === 'sequential' ? 'ダウンロード中' : '準備中'} {progress.done} / {progress.total} 件
+              {method === 'sequential' ? '保存中' : '準備中'} {progress.done} / {progress.total} 件
               {batchCount > 1 && ` (${batchIndex + 1} / ${batchCount} 回目)`}
             </p>
             <p className="text-xs text-ink-3">この画面を開いたままお待ちください。</p>

@@ -28,7 +28,7 @@ function describe(n: AppNotification): { text: string; to: string } {
     case 'join_rejected':
       return { text: `${album}への参加リクエストは承認されませんでした`, to: '/albums' };
     case 'invite_permission_granted':
-      return { text: `${who} さんから${album}にメンバーを招待する権限をもらいました`, to: n.album_id ? `/albums/${n.album_id}/invite` : albumTo };
+      return { text: `${who} さんから、${album}に家族や友だちを招待できるようになりました`, to: n.album_id ? `/albums/${n.album_id}/invite` : albumTo };
   }
 }
 
@@ -46,12 +46,12 @@ export function NotificationsPage() {
 
   return (
     <>
-      <PageHeader title="通知" />
+      <PageHeader title="お知らせ" />
       <main className="mx-auto max-w-2xl">
         {isLoading ? (
           <FullPageSpinner />
         ) : !data || data.length === 0 ? (
-          <EmptyState icon={<Bell className="size-7" />} title="通知はまだありません">
+          <EmptyState icon={<Bell className="size-7" />} title="お知らせはまだありません">
             写真の追加やコメントがあるとここに表示されます。
           </EmptyState>
         ) : (
@@ -63,7 +63,7 @@ export function NotificationsPage() {
                   <Link to={to} className={`px-safe flex items-start gap-3 py-3.5 transition hover:bg-surface-2 ${n.read_at ? '' : 'bg-accent-soft/50'}`}>
                     <Avatar path={n.actor?.avatar_path} name={n.actor?.display_name} size={40} />
                     <div className="min-w-0 flex-1">
-                      <p className="line-clamp-2 text-[15px] leading-snug">{text}</p>
+                      <p className="line-clamp-2 text-base leading-snug">{text}</p>
                       <p className="mt-1 text-xs text-ink-3">{formatRelative(n.created_at)}</p>
                     </div>
                     {!n.read_at && <span className="mt-2 size-2 shrink-0 rounded-full bg-accent" aria-label="未読" />}

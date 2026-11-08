@@ -431,20 +431,20 @@ for (const [label, device] of [
   await page.getByRole('tab', { name: 'すべて' }).click();
 
   // カバー画像の変更 (オーナー)
-  await page.getByRole('button', { name: 'メニュー' }).click();
-  await page.getByRole('button', { name: 'カバー画像を変更' }).click();
-  const pick = page.getByRole('button', { name: 'この写真をカバーにする' }).nth(0);
+  await page.getByRole('button', { name: 'その他' }).click();
+  await page.getByRole('button', { name: '表紙の写真を変える' }).click();
+  const pick = page.getByRole('button', { name: 'この写真を表紙にする' }).nth(0);
   await pick.waitFor({ timeout: 5000 });
-  check(`${label}: カバー選択で現在のカバーに印`, (await page.getByRole('button', { name: '現在のカバー' }).count()) === 1);
+  check(`${label}: カバー選択で現在のカバーに印`, (await page.getByRole('button', { name: '今の表紙' }).count()) === 1);
   await page.screenshot({ path: `${OUT}/${label}-05a-cover.png` });
   await pick.click();
-  await page.getByText('カバー画像を変更しました').waitFor({ timeout: 5000 }).catch(() => undefined);
+  await page.getByText('表紙の写真を変更しました').waitFor({ timeout: 5000 }).catch(() => undefined);
   check(`${label}: アルバムの写真からカバー画像を変更`, mock.state.coverCalls?.some((b) => b.p_photo_id === 'p-1'), JSON.stringify(mock.state.coverCalls));
   await page.goto(`${BASE}/albums/${ALBUM_ID}/edit`);
   check(`${label}: 編集画面からもカバー画像を変更できる`, await page.getByRole('button', { name: '変更する' }).waitFor({ timeout: 5000 }).then(() => true).catch(() => false));
   // メンバーの権限 (既定はどちらもオン) → 招待だけオフにして保存
   const inviteAllSwitch = page.getByRole('switch', { name: 'メンバー全員が招待できる' });
-  check(`${label}: 編集画面のメンバー権限は既定でオン`, (await inviteAllSwitch.isChecked()) && (await page.getByRole('switch', { name: 'メンバー全員がカバー画像を変更できる' }).isChecked()));
+  check(`${label}: 編集画面のメンバー権限は既定でオン`, (await inviteAllSwitch.isChecked()) && (await page.getByRole('switch', { name: 'メンバー全員が表紙の写真を変えられる' }).isChecked()));
   await page.screenshot({ path: `${OUT}/${label}-05e-edit.png`, fullPage: true });
   await inviteAllSwitch.click({ force: true });
   await page.getByRole('button', { name: '保存する' }).click();
@@ -475,8 +475,8 @@ for (const [label, device] of [
   );
   check(`${label}: 削除後は選択モードを終了`, (await page.getByRole('checkbox').count()) === 0);
   // メニューからも選択モードに入れる
-  await page.getByRole('button', { name: 'メニュー' }).click();
-  await page.getByRole('button', { name: '写真を選択 (保存・削除)' }).click();
+  await page.getByRole('button', { name: 'その他' }).click();
+  await page.getByRole('button', { name: '写真を選ぶ (保存・削除)' }).click();
   await page.getByRole('button', { name: 'すべて選択' }).click();
   check(`${label}: すべて選択 (読み込み済みの写真)`, (await page.getByRole('checkbox', { checked: true }).count()) === (await page.getByRole('checkbox').count()));
   await page.getByRole('button', { name: '選択を解除' }).click();
@@ -503,7 +503,7 @@ for (const [label, device] of [
   const others = photos.filter((p) => p.uploader_id !== USER_ID);
   const alreadySaved = others.filter((p) => mock.state.marked.has(p.id)).length;
   downloads.length = 0;
-  await page.getByRole('button', { name: 'メニュー' }).click();
+  await page.getByRole('button', { name: 'その他' }).click();
   await page.getByRole('button', { name: '他のメンバーの写真を保存' }).click();
   const onlyUnsaved = page.getByRole('button', { name: `未保存の ${others.length - alreadySaved} 件だけ保存` });
   await onlyUnsaved.waitFor({ timeout: 5000 }).catch(() => undefined);
@@ -521,7 +521,7 @@ for (const [label, device] of [
 
   // アルバム全体の保存 + 端末の写真と照合 (p-3 と p-6 だけ端末に残っている想定)
   mock.state.thumbOverrides = { [`${ALBUM_ID}/p-3/thumb.jpg`]: deviceJpegs[0], [`${ALBUM_ID}/p-6/thumb.jpg`]: deviceJpegs[1] };
-  await page.getByRole('button', { name: 'メニュー' }).click();
+  await page.getByRole('button', { name: 'その他' }).click();
   await page.getByRole('button', { name: 'アルバムの写真をすべて保存 (自分の写真も含む)' }).click();
   await page.getByRole('button', { name: '写真を選んで照合' }).waitFor({ timeout: 5000 });
   const recordedBefore = mock.state.marked.size;
@@ -545,7 +545,7 @@ for (const [label, device] of [
 
   // ビューア + スワイプ
   await page.goto(`${BASE}/albums/${ALBUM_ID}/photos/p-1`);
-  await page.getByLabel('詳細情報').waitFor();
+  await page.getByLabel('情報', { exact: true }).waitFor();
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${OUT}/${label}-06-viewer.png` });
   const vp = page.viewportSize();
@@ -563,8 +563,8 @@ for (const [label, device] of [
   // メンバー・招待・通知・マイページ
   for (const [path, name, file] of [
     [`/albums/${ALBUM_ID}/members`, 'メンバー', '08-members'],
-    [`/albums/${ALBUM_ID}/invite`, 'メンバーを招待', '09-invite'],
-    ['/notifications', '通知', '10-notifications'],
+    [`/albums/${ALBUM_ID}/invite`, '家族や友だちを招待', '09-invite'],
+    ['/notifications', 'お知らせ', '10-notifications'],
     ['/profile', 'マイページ', '11-profile'],
     ['/settings', '設定', '12-settings'],
     ['/join', 'アルバムに参加', '13-join'],
@@ -601,13 +601,13 @@ for (const [label, device] of [
     files.push({ name: 'MOV_0001.mp4', mimeType: 'video/mp4', buffer: video });
 
     await page.goto(`${BASE}/albums/${ALBUM_ID}/upload`);
-    await page.getByText('ライブラリ').waitFor();
+    await page.getByRole('button', { name: '写真を選ぶ' }).waitFor();
     const t0 = Date.now();
     await page.locator('input[type=file][multiple]').setInputFiles(files);
-    await page.getByRole('button', { name: /件をアップロード/ }).waitFor();
-    check('iPhone: 122 件選択してもプレビュー表示', (await page.getByRole('button', { name: '122 件をアップロード' }).count()) === 1, `${Date.now() - t0}ms`);
+    await page.getByRole('button', { name: /件を送る/ }).waitFor();
+    check('iPhone: 122 件選択してもプレビュー表示', (await page.getByRole('button', { name: '122 件を送る' }).count()) === 1, `${Date.now() - t0}ms`);
     await page.screenshot({ path: `${OUT}/${label}-14-picker.png` });
-    await page.getByRole('button', { name: '122 件をアップロード' }).click();
+    await page.getByRole('button', { name: '122 件を送る' }).click();
     await page.waitForURL(/\/uploads/);
     await page.waitForTimeout(1500);
     await page.screenshot({ path: `${OUT}/${label}-15-uploading.png` });
@@ -638,12 +638,12 @@ for (const [label, device] of [
     // 完了表示は数秒後に自動で消える
     const extra = await makeJpegs(browser, 2);
     await page.getByRole('link', { name: 'アルバムを見る' }).click().catch(() => undefined);
-    await page.getByRole('link', { name: '追加' }).click();
+    await page.getByRole('link', { name: '写真を送る' }).click();
     await page.locator('input[type=file][multiple]').setInputFiles(extra.map((buf, i) => ({ name: `EXTRA_${i}.JPG`, mimeType: 'image/jpeg', buffer: Buffer.concat([buf, Buffer.from([i])]) })));
-    await page.getByRole('button', { name: '2 件をアップロード' }).click();
+    await page.getByRole('button', { name: '2 件を送る' }).click();
     await page.getByText('完了しました').waitFor({ timeout: 30000 });
     await page.getByRole('link', { name: 'アルバムを見る' }).click();
-    const banner = page.getByRole('status').filter({ hasText: 'アップロード完了' });
+    const banner = page.getByRole('status').filter({ hasText: '送信完了' });
     const shown = await banner.waitFor({ timeout: 2000 }).then(() => true).catch(() => false);
     await page.screenshot({ path: `${OUT}/${label}-18-banner.png` });
     await page.waitForTimeout(4600);
@@ -654,7 +654,7 @@ for (const [label, device] of [
       const before = new Set(mock.state.uploads.keys());
       await page.goto(`${BASE}/albums/${ALBUM_ID}/upload`);
       await page.locator('input[type=file][multiple]').setInputFiles([{ name, mimeType: 'image/jpeg', buffer: buf }]);
-      await page.getByRole('button', { name: '1 件をアップロード' }).click();
+      await page.getByRole('button', { name: '1 件を送る' }).click();
       await page.getByText('完了しました').waitFor({ timeout: 30000 });
       const key = [...mock.state.uploads.keys()].find((k) => !before.has(k) && k.endsWith('original.jpg'));
       const previewSent = [...mock.state.uploads.keys()].some((k) => !before.has(k) && k.endsWith('preview.jpg'));
@@ -684,13 +684,63 @@ for (const [label, device] of [
 
     // 写真選択の画面を閉じてからファイルが届くまで「準備中」を表示
     await page.goto(`${BASE}/albums/${ALBUM_ID}/upload`);
-    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'ライブラリ' }).click()]);
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: '写真を選ぶ' }).click()]);
     const overlay = page.getByRole('alertdialog', { name: '写真を準備しています' });
     const overlayShown = await overlay.isVisible();
     await page.screenshot({ path: `${OUT}/${label}-19-preparing.png` });
     await chooser.setFiles(extra.map((buf, i) => ({ name: `PICK_${i}.JPG`, mimeType: 'image/jpeg', buffer: buf })));
-    await page.getByRole('button', { name: '2 件をアップロード' }).waitFor({ timeout: 5000 });
+    await page.getByRole('button', { name: '2 件を送る' }).waitFor({ timeout: 5000 });
     check('iPhone: 写真を選ぶ間は「準備しています」を表示し、届いたら消える', overlayShown && (await overlay.count()) === 0);
+
+    // 文字の大きさ: 特大にすると画面全体が拡大される
+    await page.goto(`${BASE}/settings`);
+    await page.getByRole('radio', { name: '特大' }).click();
+    const rootPx = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+    check('iPhone: 文字の大きさ「特大」で画面全体の文字が大きくなる', rootPx === 21, `root=${rootPx}px`);
+    await page.getByRole('radio', { name: '標準' }).click();
+
+    // かんたんモード
+    await page.getByRole('switch', { name: 'かんたんモード' }).click({ force: true });
+    const attrs = await page.evaluate(() => ({ simple: document.documentElement.dataset.simple, size: document.documentElement.dataset.textSize }));
+    check('iPhone: かんたんモードをオンにすると文字が「大」になる', attrs.simple === '1' && attrs.size === 'large', JSON.stringify(attrs));
+    await page.screenshot({ path: `${OUT}/${label}-20-settings-simple.png` });
+    await page.goto(`${BASE}/`);
+    await page.getByRole('link', { name: `${album.title} の写真を見る` }).waitFor({ timeout: 5000 });
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${OUT}/${label}-21-simple-home.png` });
+    const nav = page.getByRole('navigation', { name: 'メインメニュー' });
+    check(
+      'iPhone: かんたんモードのホーム (「写真を見る」「写真を送る」と簡単なメニュー)',
+      (await page.getByRole('button', { name: '写真を見る' }).count()) >= 1 &&
+        (await page.getByRole('button', { name: '写真を送る' }).count()) >= 1 &&
+        (await nav.getByRole('link', { name: '設定' }).count()) === 1 &&
+        (await nav.getByRole('link', { name: 'アルバム' }).count()) === 0,
+    );
+    check('iPhone: かんたんモードでもレイアウト崩れなし (ホーム)', await noHorizontalOverflow(page));
+    await page.goto(`${BASE}/albums/${ALBUM_ID}`);
+    await page.locator('a[href*="/photos/"]').first().waitFor();
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${OUT}/${label}-22-simple-album.png` });
+    const tile = await page.locator('a[href*="/photos/"]').first().boundingBox();
+    check(
+      'iPhone: かんたんモードのアルバム (写真を大きく 2 列・絞り込みなし・大きな送るボタン)',
+      tile.width > page.viewportSize().width / 2 - 20 && (await page.getByRole('tab').count()) === 0 &&
+        (await page.getByRole('button', { name: 'このアルバムに写真を送る' }).count()) === 1,
+      `tile=${Math.round(tile.width)}px`,
+    );
+    await page.goto(`${BASE}/albums/${ALBUM_ID}/photos/p-1`);
+    const nextBtn = page.getByRole('button', { name: '次の写真' });
+    await nextBtn.waitFor({ timeout: 5000 });
+    await page.screenshot({ path: `${OUT}/${label}-23-simple-viewer.png` });
+    await nextBtn.click();
+    await page.waitForURL(/photos\/p-2/, { timeout: 3000 }).catch(() => undefined);
+    check('iPhone: かんたんモードの写真画面に大きな「次へ」ボタン', page.url().includes('/photos/p-2'));
+    await page.goto(`${BASE}/albums/${ALBUM_ID}/upload`);
+    const [simpleChooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: '写真を選ぶ' }).click()]);
+    await simpleChooser.setFiles(extra.map((buf, i) => ({ name: `SIMPLE_${i}.JPG`, mimeType: 'image/jpeg', buffer: Buffer.concat([buf, Buffer.from([9, i])]) })));
+    await page.waitForURL(/\/uploads/, { timeout: 5000 }).catch(() => undefined);
+    check('iPhone: かんたんモードでは写真を選ぶとそのまま送信', page.url().endsWith('/uploads'));
+    await page.getByText('完了しました').waitFor({ timeout: 30000 }).catch(() => undefined);
   }
 
   // メンバーの視点: 招待の権限あり / なし
@@ -708,20 +758,20 @@ for (const [label, device] of [
     const mpage = await mctx.newPage();
     await mpage.goto(`${BASE}/albums/${ALBUM_ID}/invite`);
     const ok = allowed
-      ? await mpage.getByRole('button', { name: '招待リンクを作成' }).waitFor({ timeout: 5000 }).then(() => true).catch(() => false)
+      ? await mpage.getByRole('button', { name: '招待用のリンクを作る' }).waitFor({ timeout: 5000 }).then(() => true).catch(() => false)
       : await mpage.getByText('招待する権限がありません').waitFor({ timeout: 5000 }).then(() => true).catch(() => false);
     const caseLabel = inviteAll ? 'メンバー全員に許可' : canInvite ? '個別に許可' : '許可なし';
     check(`${label}: 招待画面 (${caseLabel})`, ok);
     await mpage.goto(`${BASE}/albums/${ALBUM_ID}/members`);
     await mpage.getByRole('heading', { name: 'メンバー', exact: true }).waitFor();
     await mpage.waitForTimeout(300);
-    const hasInviteBtn = (await mpage.getByRole('button', { name: 'メンバーを招待' }).count()) > 0;
+    const hasInviteBtn = (await mpage.getByRole('button', { name: '家族や友だちを招待' }).count()) > 0;
     const hasSwitch = (await mpage.getByRole('switch').count()) > 0;
     check(`${label}: メンバー画面の招待ボタン (${caseLabel})・権限スイッチは非表示`, hasInviteBtn === allowed && !hasSwitch);
     await mpage.goto(`${BASE}/albums/${ALBUM_ID}`);
-    await mpage.getByRole('button', { name: 'メニュー' }).click();
+    await mpage.getByRole('button', { name: 'その他' }).click();
     await mpage.getByRole('link', { name: '写真・動画を追加', exact: true }).waitFor();
-    const coverItem = (await mpage.getByRole('button', { name: 'カバー画像を変更' }).count()) > 0;
+    const coverItem = (await mpage.getByRole('button', { name: '表紙の写真を変える' }).count()) > 0;
     check(`${label}: メンバーのカバー変更メニュー (${coverAll ? '許可' : '不可'})`, coverItem === coverAll);
     await mctx.close();
   }

@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom';
-import { ChevronRight, FolderPlus, Images, KeyRound } from 'lucide-react';
+import { ChevronRight, FolderPlus, ImagePlus, Images, KeyRound } from 'lucide-react';
 import { useMyProfile } from '@/features/auth/AuthProvider';
 import { useAlbums } from '@/features/albums/api';
 import { AlbumCover } from '@/features/albums/AlbumCover';
 import { useRecentPhotos } from '@/features/photos/api';
 import { PhotoThumb } from '@/features/photos/PhotoGrid';
 import { formatRelative } from '@/lib/format';
-import { EmptyState, FullPageSpinner } from '@/components/ui';
+import { Button, EmptyState, FullPageSpinner } from '@/components/ui';
+import { useSimpleMode } from '@/lib/display';
 import { InstallBanner } from '@/features/profile/install';
 
 function greeting() {
@@ -18,6 +19,71 @@ function greeting() {
 }
 
 export function HomePage() {
+  const simple = useSimpleMode();
+  return simple ? <SimpleHome /> : <StandardHome />;
+}
+
+/** かんたんモードのホーム: アルバムごとに「写真を見る」「写真を送る」の大きなボタンだけ */
+function SimpleHome() {
+  const { data: profile } = useMyProfile();
+  const { data: albums, isLoading } = useAlbums();
+  return (
+    <main className="pt-safe px-safe mx-auto max-w-xl pb-6">
+      <header className="pt-6 pb-5">
+        <p className="text-lg text-ink-2">{greeting()}</p>
+        <h1 className="text-3xl font-bold tracking-tight">{profile?.display_name ?? ''} さん</h1>
+      </header>
+
+      {isLoading ? (
+        <FullPageSpinner />
+      ) : !albums || albums.length === 0 ? (
+        <div className="rounded-3xl bg-surface p-6 text-center shadow-sm">
+          <Images className="mx-auto size-12 text-ink-3" />
+          <p className="mt-3 text-lg font-semibold">まだアルバムがありません</p>
+          <p className="mt-2 text-base text-ink-2">家族から届いた招待を開くか、招待コードを入力してください。</p>
+          <Link to="/join" className="mt-5 block">
+            <Button block>
+              <KeyRound className="size-6" />
+              招待コードを入力する
+            </Button>
+          </Link>
+        </div>
+      ) : (
+        <ul className="space-y-5">
+          {albums.map((a) => (
+            <li key={a.id} className="overflow-hidden rounded-3xl bg-surface shadow-sm">
+              <Link to={`/albums/${a.id}`} aria-label={`${a.title} の写真を見る`}>
+                <AlbumCover path={a.cover?.preview_path ?? a.cover?.thumb_path} className="aspect-[16/10] w-full" large />
+              </Link>
+              <div className="p-4">
+                <h2 className="text-xl font-bold">{a.title}</h2>
+                <p className="mt-0.5 text-base text-ink-2">
+                  写真 {a.photo_count} 枚{a.last_photo_at && ` ・ ${formatRelative(a.last_photo_at)}に追加`}
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <Link to={`/albums/${a.id}`}>
+                    <Button block variant="secondary">
+                      <Images className="size-6" />
+                      写真を見る
+                    </Button>
+                  </Link>
+                  <Link to={`/albums/${a.id}/upload`}>
+                    <Button block>
+                      <ImagePlus className="size-6" />
+                      写真を送る
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </main>
+  );
+}
+
+function StandardHome() {
   const { data: profile } = useMyProfile();
   const { data: albums, isLoading } = useAlbums();
   const { data: recent } = useRecentPhotos();
@@ -34,17 +100,17 @@ export function HomePage() {
       </div>
 
       <div className="px-safe grid grid-cols-2 gap-3">
-        <Link to="/albums/new" className="flex items-center gap-3 rounded-2xl bg-surface p-4 shadow-sm transition active:scale-[0.98]">
-          <span className="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
-            <FolderPlus className="size-5" />
+        <Link to="/albums/new" className="flex flex-col items-center gap-2 rounded-2xl bg-surface p-4 text-center shadow-sm transition active:scale-[0.98]">
+          <span className="flex size-12 items-center justify-center rounded-xl bg-accent-soft text-accent">
+            <FolderPlus className="size-6" />
           </span>
-          <span className="text-sm font-semibold">アルバム作成</span>
+          <span className="text-base font-semibold">アルバムを作る</span>
         </Link>
-        <Link to="/join" className="flex items-center gap-3 rounded-2xl bg-surface p-4 shadow-sm transition active:scale-[0.98]">
-          <span className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2">
-            <KeyRound className="size-5" />
+        <Link to="/join" className="flex flex-col items-center gap-2 rounded-2xl bg-surface p-4 text-center shadow-sm transition active:scale-[0.98]">
+          <span className="flex size-12 items-center justify-center rounded-xl bg-surface-2 text-ink-2">
+            <KeyRound className="size-6" />
           </span>
-          <span className="text-sm font-semibold">コードで参加</span>
+          <span className="text-base font-semibold">招待コードで参加</span>
         </Link>
       </div>
 
@@ -52,7 +118,7 @@ export function HomePage() {
         <FullPageSpinner />
       ) : !albums || albums.length === 0 ? (
         <EmptyState icon={<Images className="size-7" />} title="ようこそ PhotoLink へ">
-          <p>アルバムを作って家族や友人を招待するか、受け取った招待リンク・コードから参加しましょう。</p>
+          <p>アルバムを作って家族や友人を招待するか、受け取った招待から参加しましょう。</p>
         </EmptyState>
       ) : (
         <>

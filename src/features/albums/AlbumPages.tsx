@@ -6,6 +6,7 @@ import { deletePhotos, fetchAllAlbumPhotos, useAlbumPhotos, useDownloadedIds } f
 import { PhotoGrid } from '@/features/photos/PhotoGrid';
 import { BulkSaveSheet } from '@/features/photos/BulkSaveSheet';
 import { hasFeature } from '@/lib/features';
+import { useSimpleMode } from '@/lib/display';
 import { toMessage } from '@/lib/errors';
 import { formatRelative } from '@/lib/format';
 import type { PhotoWithUploader } from '@/types/db';
@@ -15,6 +16,7 @@ import {
   EmptyState,
   ErrorBox,
   FullPageSpinner,
+  HeaderLink,
   IconButton,
   PageHeader,
   Sheet,
@@ -35,9 +37,7 @@ export function AlbumsPage() {
       <PageHeader
         title="アルバム"
         actions={
-          <Link to="/albums/new" aria-label="アルバムを作成" className="inline-flex size-11 items-center justify-center rounded-full hover:bg-surface-2">
-            <Plus className="size-6" />
-          </Link>
+          <HeaderLink to="/albums/new" label="作る" icon={<Plus className="size-6" />} />
         }
       />
       <main className="px-safe mx-auto max-w-5xl py-4">
@@ -50,7 +50,7 @@ export function AlbumsPage() {
             {albums.map((a) => (
               <Link key={a.id} to={`/albums/${a.id}`} className="group block">
                 <AlbumCover path={a.cover?.preview_path ?? a.cover?.thumb_path} className="aspect-square rounded-2xl transition group-active:scale-[0.98]" large />
-                <h2 className="mt-2 truncate text-[15px] font-semibold">{a.title}</h2>
+                <h2 className="mt-2 truncate text-base font-semibold">{a.title}</h2>
                 <p className="text-xs text-ink-3">
                   {a.photo_count} 枚 ・ {a.member_count} 人
                 </p>
@@ -126,7 +126,7 @@ export function AlbumFormPage() {
           <TextArea label="説明 (任意)" maxLength={1000} rows={4} placeholder="どんなアルバムか書いておくと、招待された人に伝わりやすくなります" value={d} onChange={(e) => setDescription(e.target.value)} />
           {isEdit && album && (
             <div>
-              <span className="mb-1.5 block text-sm font-medium text-ink-2">カバー画像</span>
+              <span className="mb-1.5 block text-sm font-medium text-ink-2">表紙の写真</span>
               <div className="flex items-center gap-4">
                 <AlbumCover path={album.cover?.thumb_path} className="size-20 shrink-0 rounded-xl" />
                 <Button type="button" variant="secondary" size="sm" onClick={() => setCoverOpen(true)}>
@@ -146,8 +146,8 @@ export function AlbumFormPage() {
                 onChange={setMembersCanInvite}
               />
               <PermissionSwitch
-                label="メンバー全員がカバー画像を変更できる"
-                description="オフにすると、カバー画像を変更できるのはオーナーだけになります。"
+                label="メンバー全員が表紙の写真を変えられる"
+                description="オフにすると、表紙の写真を変えられるのはオーナーだけになります。"
                 checked={coverPerm}
                 onChange={setMembersCanChangeCover}
               />
@@ -217,6 +217,7 @@ export function AlbumDetailPage() {
   const isOwner = album?.owner_id === userId;
   const canInvite = useCanInvite(albumId, userId);
   const canChangeCover = useCanChangeCover(albumId, userId);
+  const simple = useSimpleMode();
 
   const list = useMemo(() => photos.data?.pages.flat() ?? [], [photos.data]);
   // オーナーは全員の写真、メンバーは自分の写真だけ削除できる (DB 側でも同じ制限)
@@ -341,8 +342,8 @@ export function AlbumDetailPage() {
               >
                 {selected.size === list.length && list.length > 0 ? '選択を解除' : 'すべて選択'}
               </button>
-              <IconButton label="選択をやめる" onClick={exitSelection}>
-                <X className="size-5" />
+              <IconButton label="やめる" showLabel onClick={exitSelection}>
+                <X className="size-6" />
               </IconButton>
             </>
           }
@@ -353,11 +354,9 @@ export function AlbumDetailPage() {
         title={album.title}
         actions={
           <>
-            <Link to={`/albums/${album.id}/members`} aria-label="メンバー" className="inline-flex size-11 items-center justify-center rounded-full hover:bg-surface-2">
-              <Users className="size-5" />
-            </Link>
-            <IconButton label="メニュー" onClick={() => setMenuOpen(true)}>
-              <MoreHorizontal className="size-5" />
+            <HeaderLink to={`/albums/${album.id}/members`} label="メンバー" icon={<Users className="size-6" />} />
+            <IconButton label="その他" showLabel onClick={() => setMenuOpen(true)}>
+              <MoreHorizontal className="size-6" />
             </IconButton>
           </>
         }
@@ -380,15 +379,25 @@ export function AlbumDetailPage() {
               {album.last_photo_at && ` ・ ${formatRelative(album.last_photo_at)}に更新`}
             </span>
           </Link>
-          <Link to={`/albums/${album.id}/upload`} className="shrink-0">
-            <Button size="sm">
-              <ImagePlus className="size-4" />
-              追加
+          {!simple && (
+            <Link to={`/albums/${album.id}/upload`} className="shrink-0">
+              <Button size="sm">
+                <ImagePlus className="size-5" />
+                写真を送る
+              </Button>
+            </Link>
+          )}
+        </div>
+        {simple && (
+          <Link to={`/albums/${album.id}/upload`} className="mt-4 block">
+            <Button block>
+              <ImagePlus className="size-6" />
+              このアルバムに写真を送る
             </Button>
           </Link>
-        </div>
+        )}
 
-        {members && members.length > 1 && (
+        {!simple && members && members.length > 1 && (
           <div className="no-scrollbar -mx-4 mt-3 flex gap-2 overflow-x-auto px-4" role="tablist" aria-label="投稿者で絞り込み">
             <FilterChip active={!by} onClick={() => setParams({}, { replace: true })}>
               すべて
@@ -428,7 +437,8 @@ export function AlbumDetailPage() {
             onLoadMore={loadMore}
             query={by ? `?by=${by}` : ''}
             selection={selecting ? { selected, canSelect, onToggle: toggle, savedIds } : null}
-            onLongPress={startSelection}
+            onLongPress={simple ? undefined : startSelection}
+            large={simple}
           />
         )}
       </main>
@@ -484,7 +494,7 @@ export function AlbumDetailPage() {
           <SheetItem icon={<Users className="size-5" />} to={`/albums/${album.id}/members`}>
             メンバー
           </SheetItem>
-          {list.length > 0 && (
+          {!simple && list.length > 0 && (
             <SheetItem
               icon={<CheckSquare className="size-5" />}
               onClick={() => {
@@ -492,10 +502,10 @@ export function AlbumDetailPage() {
                 startSelection();
               }}
             >
-              写真を選択 (保存・削除)
+              写真を選ぶ (保存・削除)
             </SheetItem>
           )}
-          {canBulkSave && album.photo_count > 0 && (
+          {!simple && canBulkSave && album.photo_count > 0 && (
             <>
               <SheetItem icon={<Download className="size-5" />} onClick={() => void onSaveAll(true)}>
                 {loadingOthers ? '読み込み中…' : '他のメンバーの写真を保存'}
@@ -507,7 +517,7 @@ export function AlbumDetailPage() {
           )}
           {canInvite && !isOwner && (
             <SheetItem icon={<UserPlus className="size-5" />} to={`/albums/${album.id}/invite`}>
-              メンバーを招待
+              家族や友だちを招待
             </SheetItem>
           )}
           {canChangeCover && album.photo_count > 0 && (
@@ -518,13 +528,13 @@ export function AlbumDetailPage() {
                 setCoverOpen(true);
               }}
             >
-              カバー画像を変更
+              表紙の写真を変える
             </SheetItem>
           )}
           {isOwner && (
             <>
               <SheetItem icon={<UserPlus className="size-5" />} to={`/albums/${album.id}/invite`}>
-                メンバーを招待
+                家族や友だちを招待
               </SheetItem>
               <SheetItem icon={<Pencil className="size-5" />} to={`/albums/${album.id}/edit`}>
                 アルバムを編集

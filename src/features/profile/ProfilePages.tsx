@@ -1,17 +1,18 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { Camera, ChevronRight, FileText, HardDrive, ImageIcon, LogOut, Moon, Settings, Shield, Smartphone, Trash2, UploadCloud } from 'lucide-react';
+import { Camera, ChevronRight, Eye, FileText, HardDrive, ImageIcon, LogOut, Moon, Settings, Shield, Smartphone, Trash2, UploadCloud, User } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { queryClient } from '@/lib/queryClient';
 import { toMessage } from '@/lib/errors';
 import { formatBytes } from '@/lib/format';
 import { useTheme, type ThemePref } from '@/lib/theme';
+import { TEXT_SIZE_LABEL, effectiveTextSize, useDisplay, type TextSize } from '@/lib/display';
 import { useAuth, useMyProfile } from '@/features/auth/AuthProvider';
 import { useMyUsage } from '@/features/albums/api';
 import { useUploadStore } from '@/features/upload/uploadStore';
 import { STANDARD_MAX_EDGE, useUploadQuality, type UploadQuality } from '@/features/upload/quality';
-import { Avatar, Button, ErrorBox, FullPageSpinner, PageHeader, ProgressBar, TextField } from '@/components/ui';
+import { Avatar, Button, ErrorBox, FullPageSpinner, HeaderLink, PageHeader, ProgressBar, TextField } from '@/components/ui';
 import { toast } from '@/components/toast';
 import { IosInstallGuide, useInstallState } from './install';
 
@@ -88,9 +89,7 @@ export function ProfilePage() {
       <PageHeader
         title="マイページ"
         actions={
-          <Link to="/settings" aria-label="設定" className="inline-flex size-11 items-center justify-center rounded-full hover:bg-surface-2">
-            <Settings className="size-5" />
-          </Link>
+          <HeaderLink to="/settings" label="設定" icon={<Settings className="size-6" />} />
         }
       />
       <main className="px-safe mx-auto max-w-lg py-6">
@@ -158,7 +157,7 @@ export function ProfilePage() {
 
         <nav className="mt-6 overflow-hidden rounded-2xl bg-surface shadow-sm">
           <MenuLink to="/uploads" icon={<UploadCloud className="size-5" />}>
-            アップロード状況
+            送信状況
           </MenuLink>
           <MenuLink to="/settings" icon={<Settings className="size-5" />}>
             設定
@@ -186,7 +185,7 @@ function MenuLink({ to, icon, children }: { to: string; icon: React.ReactNode; c
   return (
     <Link to={to} className="flex min-h-14 items-center gap-3 border-b border-line px-4 last:border-0 hover:bg-surface-2">
       <span className="text-ink-3">{icon}</span>
-      <span className="flex-1 text-[15px]">{children}</span>
+      <span className="flex-1 text-base">{children}</span>
       <ChevronRight className="size-4 text-ink-3" />
     </Link>
   );
@@ -207,6 +206,8 @@ export function SettingsPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
   const isEmailUser = session?.user.app_metadata.provider === 'email';
+  const { textSize, simpleMode, setTextSize, setSimpleMode } = useDisplay();
+  const shownSize = effectiveTextSize(textSize, simpleMode);
 
   async function onDeleteAccount() {
     setDeleting(true);
@@ -234,6 +235,43 @@ export function SettingsPage() {
     <>
       <PageHeader title="設定" back="/profile" />
       <main className="px-safe mx-auto max-w-lg space-y-6 py-6">
+        <Section title="見やすさ" icon={<Eye className="size-5" />}>
+          <label className="flex cursor-pointer items-start justify-between gap-4 rounded-xl bg-accent-soft p-4">
+            <span>
+              <span className="block text-lg font-bold">かんたんモード</span>
+              <span className="mt-1 block text-sm text-ink-2">
+                よく使う機能だけを大きく表示します。写真を選ぶと、そのまま送られます。おじいちゃん・おばあちゃんのスマホにおすすめです。
+              </span>
+            </span>
+            <input type="checkbox" role="switch" className="peer sr-only" checked={simpleMode} onChange={(e) => setSimpleMode(e.target.checked)} aria-label="かんたんモード" />
+            <span className="relative mt-1 h-8 w-14 shrink-0 rounded-full bg-line transition peer-checked:bg-accent after:absolute after:top-1 after:left-1 after:size-6 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-6" />
+          </label>
+
+          <p className="mt-5 mb-2 text-base font-semibold">文字の大きさ</p>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="文字の大きさ">
+            {(['standard', 'large', 'xlarge'] as TextSize[]).map((size) => {
+              const disabled = simpleMode && size === 'standard';
+              return (
+                <button
+                  key={size}
+                  role="radio"
+                  aria-checked={shownSize === size}
+                  disabled={disabled}
+                  onClick={() => setTextSize(size)}
+                  className={`min-h-14 rounded-xl font-semibold disabled:opacity-40 ${shownSize === size ? 'bg-ink text-bg' : 'bg-surface-2'} ${
+                    size === 'standard' ? 'text-base' : size === 'large' ? 'text-lg' : 'text-xl'
+                  }`}
+                >
+                  {TEXT_SIZE_LABEL[size]}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-sm text-ink-3">
+            {simpleMode ? 'かんたんモードでは「大」以上になります。' : '画面全体の文字とボタンが大きくなります。'}
+          </p>
+        </Section>
+
         <Section title="表示" icon={<Moon className="size-5" />}>
           <div className="grid grid-cols-3 gap-2">
             {(
@@ -281,11 +319,11 @@ export function SettingsPage() {
             ))}
           </div>
           <p className="mt-3 text-xs text-ink-3">
-            これからアップロードする写真に適用されます (この端末のみ)。すでに保存した写真は変わりません。動画は常にそのまま保存します。
+            これから送る写真に適用されます (この端末のみ)。すでに保存した写真は変わりません。動画は常にそのまま保存します。
           </p>
         </Section>
 
-        <Section title="アップロード" icon={<UploadCloud className="size-5" />}>
+        <Section title="送信" icon={<UploadCloud className="size-5" />}>
           <p className="mb-3 text-sm text-ink-2">同時に送信するファイル数。通信が不安定な場合は少なくしてください。</p>
           <div className="grid grid-cols-4 gap-2">
             {[1, 2, 3, 4].map((n) => (
@@ -319,6 +357,12 @@ export function SettingsPage() {
 
         <Section title="アカウント" icon={<Shield className="size-5" />}>
           <p className="text-sm text-ink-2">ログイン中: {session?.user.email}</p>
+          <Link to="/profile" className="mt-3 block">
+            <Button size="sm" variant="secondary">
+              <User className="size-4" />
+              名前・写真を変える (マイページ)
+            </Button>
+          </Link>
           {isEmailUser && (
             <Button size="sm" variant="secondary" className="mt-3" onClick={onPasswordReset}>
               パスワードを変更 (メールで再設定)

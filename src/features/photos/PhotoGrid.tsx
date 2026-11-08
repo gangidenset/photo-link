@@ -18,7 +18,7 @@ export const PhotoThumb = memo(function PhotoThumb({ photo, className = '' }: { 
         </div>
       ) : null}
       {photo.media_type === 'video' && (
-        <span className="absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[11px] font-medium text-white">
+        <span className="absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-0.5 text-xs font-medium text-white">
           <Play className="size-3 fill-current" />
           {formatDuration(photo.duration_sec)}
         </span>
@@ -44,12 +44,14 @@ interface Props {
   } | null;
   /** 長押しで選択モードを開始 */
   onLongPress?: (p: PhotoWithUploader) => void;
+  /** 大きく表示 (かんたんモード: 2 列) */
+  large?: boolean;
 }
 
 const LONG_PRESS_MS = 450;
 
 /** 月別の見出し付きグリッド + 無限スクロール */
-export function PhotoGrid({ photos, albumId, hasMore, loadingMore, onLoadMore, query = '', selection, onLongPress }: Props) {
+export function PhotoGrid({ photos, albumId, hasMore, loadingMore, onLoadMore, query = '', selection, onLongPress, large }: Props) {
   const sentinel = useRef<HTMLDivElement>(null);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
@@ -92,8 +94,8 @@ export function PhotoGrid({ photos, albumId, hasMore, loadingMore, onLoadMore, q
     <div>
       {groups.map(([key, g]) => (
         <section key={key} className="cv-auto">
-          <h2 className="px-safe sticky top-[calc(var(--sat)+3.5rem)] z-10 bg-bg/90 py-2 text-sm font-semibold backdrop-blur">{g.label}</h2>
-          <div className="grid grid-cols-3 gap-0.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+          <h2 className="px-safe sticky top-[calc(var(--sat)+4rem)] z-10 bg-bg/90 py-2 text-base font-bold backdrop-blur">{g.label}</h2>
+          <div className={large ? 'grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-4' : 'grid grid-cols-3 gap-0.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6'}>
             {g.items.map((p) => {
               const label = `${p.media_type === 'video' ? '動画' : '写真'} (${p.uploader?.display_name ?? ''})`;
               if (selection) {
@@ -122,7 +124,7 @@ export function PhotoGrid({ photos, albumId, hasMore, loadingMore, onLoadMore, q
                       </span>
                     )}
                     {saved && (
-                      <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-full bg-black/60 px-1.5 py-0.5 text-xs font-medium text-white">
                         <Download className="size-3" />
                         保存済み
                       </span>

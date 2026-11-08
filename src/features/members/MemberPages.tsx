@@ -10,7 +10,7 @@ import { canShareText } from '@/lib/platform';
 import type { Invitation, InvitationPreview } from '@/types/db';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { setMemberCanInvite, useAlbum, useCanInvite, useInvitations, useJoinRequests, useMembers } from '@/features/albums/api';
-import { Avatar, Button, EmptyState, ErrorBox, FullPageSpinner, IconButton, PageHeader, TextField } from '@/components/ui';
+import { Avatar, Button, EmptyState, ErrorBox, FullPageSpinner, HeaderLink, IconButton, PageHeader, TextField } from '@/components/ui';
 import { toast } from '@/components/toast';
 
 const inviteUrl = (inv: Invitation) => `${appUrl()}/join/${inv.token}`;
@@ -83,9 +83,7 @@ export function MembersPage() {
         back={`/albums/${albumId}`}
         actions={
           canInvite && (
-            <Link to={`/albums/${albumId}/invite`} aria-label="招待" className="inline-flex size-11 items-center justify-center rounded-full hover:bg-surface-2">
-              <UserPlus className="size-5" />
-            </Link>
+            <HeaderLink to={`/albums/${albumId}/invite`} label="招待" icon={<UserPlus className="size-6" />} />
           )
         }
       />
@@ -138,7 +136,7 @@ export function MembersPage() {
                 </p>
               </div>
               {isOwner && m.role !== 'owner' && !album?.members_can_invite && (
-                <label className="flex shrink-0 cursor-pointer flex-col items-center gap-0.5 text-[10px] text-ink-3">
+                <label className="flex shrink-0 cursor-pointer flex-col items-center gap-0.5 text-xs text-ink-3">
                   <input
                     type="checkbox"
                     role="switch"
@@ -148,7 +146,7 @@ export function MembersPage() {
                     aria-label={`${m.profile?.display_name} さんに招待の権限を付与`}
                     onChange={(e) => {
                       const value = e.target.checked;
-                      if (!value && !window.confirm(`${m.profile?.display_name} さんの招待の権限を取り消しますか？\nこの人が作った招待リンクも使えなくなります。`)) return;
+                      if (!value && !window.confirm(`${m.profile?.display_name} さんの招待の権限を取り消しますか？\nこの人が作った招待も使えなくなります。`)) return;
                       togglePermission.mutate({ uid: m.user_id, value });
                     }}
                   />
@@ -176,7 +174,7 @@ export function MembersPage() {
           <p className="px-safe mt-3 text-xs text-ink-3">
             {album?.members_can_invite
               ? 'メンバー全員が招待できます。特定の人だけに限定したい場合は、「アルバムを編集」で「メンバー全員が招待できる」をオフにしてください。'
-              : '「招待」をオンにしたメンバーは、招待リンクを作って他の人を招待できます。'}
+              : '「招待」をオンにしたメンバーは、家族や友だちを招待できます。'}
             メンバーの除外や参加リクエストの承認はオーナーだけができます。
           </p>
         )}
@@ -186,7 +184,7 @@ export function MembersPage() {
             <Link to={`/albums/${albumId}/invite`}>
               <Button block>
                 <UserPlus className="size-5" />
-                メンバーを招待
+                家族や友だちを招待
               </Button>
             </Link>
           )}
@@ -251,7 +249,7 @@ export function InvitePage() {
       <>
         <PageHeader back={`/albums/${albumId}`} title="招待" />
         <EmptyState icon={<Ban className="size-7" />} title="招待する権限がありません">
-          オーナーに「招待」の権限をもらうと、メンバーを招待できるようになります。
+          オーナーに「招待」の権限をもらうと、家族や友だちを招待できるようになります。
         </EmptyState>
       </>
     );
@@ -261,10 +259,10 @@ export function InvitePage() {
 
   return (
     <>
-      <PageHeader title="メンバーを招待" back={`/albums/${albumId}/members`} />
+      <PageHeader title="家族や友だちを招待" back={`/albums/${albumId}/members`} />
       <main className="px-safe mx-auto max-w-lg py-6">
         <section className="rounded-2xl bg-surface p-5 shadow-sm">
-          <h2 className="font-semibold">新しい招待リンク</h2>
+          <h2 className="text-lg font-semibold">招待用のリンクを作る</h2>
           <p className="mt-1 text-sm text-ink-2">リンクを受け取った人は、ログインしてから参加できます。リンクを知っているだけでは写真は見られません。</p>
           <label className="mt-4 block text-sm">
             <span className="mb-1.5 block font-medium text-ink-2">有効期限</span>
@@ -287,7 +285,7 @@ export function InvitePage() {
             <input type="checkbox" className="size-6 accent-[var(--accent)]" checked={requiresApproval} onChange={(e) => setRequiresApproval(e.target.checked)} />
           </label>
           <Button className="mt-5" block loading={create.isPending} onClick={() => create.mutate()}>
-            招待リンクを作成
+            招待用のリンクを作る
           </Button>
         </section>
 
@@ -296,7 +294,7 @@ export function InvitePage() {
             <h2 className="mb-3 text-sm font-semibold text-ink-2">{isOwner ? '有効な招待' : 'あなたが作った有効な招待'}</h2>
             <ul className="space-y-4">
               {active.map((inv) => (
-                <InvitationCard key={inv.id} inv={inv} albumTitle={album.title} creator={creatorName(inv.created_by)} onRevoke={() => window.confirm('この招待リンクを無効にしますか？') && revoke.mutate(inv.id)} />
+                <InvitationCard key={inv.id} inv={inv} albumTitle={album.title} creator={creatorName(inv.created_by)} onRevoke={() => window.confirm('この招待を使えなくしますか？') && revoke.mutate(inv.id)} />
               ))}
             </ul>
           </section>

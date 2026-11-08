@@ -29,7 +29,7 @@ export function CoverPickerSheet({ open, onClose, albumId, currentCoverId }: Pro
     setSaving(photoId);
     try {
       await setAlbumCover(albumId, photoId);
-      toast('カバー画像を変更しました');
+      toast('表紙の写真を変更しました');
       onClose();
     } catch (e) {
       toast(toMessage(e), 'error');
@@ -39,7 +39,7 @@ export function CoverPickerSheet({ open, onClose, albumId, currentCoverId }: Pro
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="カバー画像を選ぶ">
+    <Sheet open={open} onClose={onClose} title="表紙の写真を選ぶ">
       <div className="px-4 pb-6">
         {photos.isLoading ? (
           <div className="flex justify-center py-10">
@@ -48,7 +48,7 @@ export function CoverPickerSheet({ open, onClose, albumId, currentCoverId }: Pro
         ) : candidates.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center text-sm text-ink-2">
             <ImageOff className="size-8 text-ink-3" />
-            カバーにできる写真がありません。先に写真を追加してください。
+            表紙にできる写真がありません。先に写真を送ってください。
           </div>
         ) : (
           <>
@@ -61,7 +61,7 @@ export function CoverPickerSheet({ open, onClose, albumId, currentCoverId }: Pro
                     type="button"
                     onClick={() => void choose(p.id)}
                     disabled={!!saving}
-                    aria-label={current ? '現在のカバー' : 'この写真をカバーにする'}
+                    aria-label={current ? '今の表紙' : 'この写真を表紙にする'}
                     aria-pressed={current}
                     className={`relative aspect-square overflow-hidden rounded-lg ${current ? 'ring-3 ring-accent ring-offset-2 ring-offset-surface' : ''}`}
                   >

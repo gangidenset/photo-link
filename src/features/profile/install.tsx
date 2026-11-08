@@ -42,7 +42,7 @@ export function useInstallState() {
 export function IosInstallGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <Sheet open={open} onClose={onClose} title="ホーム画面に追加する (iPhone)">
-      <ol className="space-y-4 px-5 pb-6 text-[15px]">
+      <ol className="space-y-4 px-5 pb-6 text-base">
         <li className="flex items-center gap-3">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 font-bold">1</span>
           <span>
