@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Download, ImageIcon, Info, Loader2, MoreHorizontal, Share, Trash2, X } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { setAlbumCover, useAlbum, useCanChangeCover } from '@/features/albums/api';
+import { useSimpleMode } from '@/lib/display';
 import { CommentsSheet, ReactionBar, useComments } from '@/features/social/Social';
 import { getSignedUrl, peekSignedUrl, useSignedUrl } from '@/lib/signedUrls';
 import { toMessage } from '@/lib/errors';
@@ -38,6 +39,7 @@ export function PhotoViewerPage() {
   const next = index >= 0 && index < photos.length - 1 ? photos[index + 1] : null;
 
   const [uiVisible, setUiVisible] = useState(true);
+  const simple = useSimpleMode();
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -57,7 +59,8 @@ export function PhotoViewerPage() {
     onPrev: () => go(prev),
     onNext: () => go(next),
     onClose: close,
-    onTap: () => setUiVisible((v) => !v),
+    // かんたんモードではボタンを隠さない (消えると戻し方が分からなくなるため)
+    onTap: () => !simple && setUiVisible((v) => !v),
   });
 
   // 写真が変わったらズームをリセット
@@ -165,33 +168,49 @@ export function PhotoViewerPage() {
       <div
         className={`pt-safe absolute inset-x-0 top-0 bg-gradient-to-b from-black/60 to-transparent transition-opacity ${uiVisible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
       >
-        <div className="px-safe flex h-14 items-center gap-2">
-          <IconButton label="閉じる" className="-ml-2 hover:bg-white/10" onClick={close}>
+        <div className="px-safe flex min-h-16 items-center gap-2 py-1">
+          <IconButton label="閉じる" showLabel className="-ml-2 hover:bg-white/10" onClick={close}>
             <X className="size-6" />
           </IconButton>
-          <Avatar path={photo.uploader?.avatar_path} name={photo.uploader?.display_name} size={30} />
+          <Avatar path={photo.uploader?.avatar_path} name={photo.uploader?.display_name} size={34} />
           <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-sm font-semibold">{photo.uploader?.display_name ?? '退会したメンバー'}</p>
-            <p className="truncate text-xs text-white/70">{formatDateTime(photo.taken_at ?? photo.created_at)}</p>
+            <p className="truncate text-base font-semibold">{photo.uploader?.display_name ?? '退会したメンバー'}</p>
+            <p className="truncate text-sm text-white/80">{formatDateTime(photo.taken_at ?? photo.created_at)}</p>
           </div>
-          <IconButton label="詳細情報" className="hover:bg-white/10" onClick={() => setInfoOpen(true)}>
-            <Info className="size-5" />
-          </IconButton>
-          <IconButton label="メニュー" className="hover:bg-white/10" onClick={() => setMenuOpen(true)}>
-            <MoreHorizontal className="size-5" />
+          {!simple && (
+            <IconButton label="情報" showLabel className="hover:bg-white/10" onClick={() => setInfoOpen(true)}>
+              <Info className="size-6" />
+            </IconButton>
+          )}
+          <IconButton label="その他" showLabel className="hover:bg-white/10" onClick={() => setMenuOpen(true)}>
+            <MoreHorizontal className="size-6" />
           </IconButton>
         </div>
       </div>
 
-      {/* 前後ボタン (PC・動画用) */}
+      {/* 前後ボタン: かんたんモードでは常に大きく表示 (スワイプを知らなくても使える)。通常は PC のみ */}
       {uiVisible && prev && (
-        <button aria-label="前の写真" onClick={() => go(prev)} className="absolute top-1/2 left-2 hidden -translate-y-1/2 rounded-full bg-black/40 p-2 sm:block">
-          <ChevronLeft className="size-6" />
+        <button
+          aria-label="前の写真"
+          onClick={() => go(prev)}
+          className={`absolute top-1/2 left-2 -translate-y-1/2 rounded-2xl bg-black/50 text-white ${
+            simple ? 'flex flex-col items-center gap-0.5 px-2 py-3 text-sm font-semibold' : 'hidden p-2 sm:block'
+          }`}
+        >
+          <ChevronLeft className={simple ? 'size-9' : 'size-6'} />
+          {simple && '前へ'}
         </button>
       )}
       {uiVisible && next && (
-        <button aria-label="次の写真" onClick={() => go(next)} className="absolute top-1/2 right-2 hidden -translate-y-1/2 rounded-full bg-black/40 p-2 sm:block">
-          <ChevronRight className="size-6" />
+        <button
+          aria-label="次の写真"
+          onClick={() => go(next)}
+          className={`absolute top-1/2 right-2 -translate-y-1/2 rounded-2xl bg-black/50 text-white ${
+            simple ? 'flex flex-col items-center gap-0.5 px-2 py-3 text-sm font-semibold' : 'hidden p-2 sm:block'
+          }`}
+        >
+          <ChevronRight className={simple ? 'size-9' : 'size-6'} />
+          {simple && '次へ'}
         </button>
       )}
 
@@ -203,18 +222,18 @@ export function PhotoViewerPage() {
           <div className="min-w-0 flex-1">
             <ReactionBar photoId={photo.id} commentCount={comments.length} onOpenComments={() => setCommentsOpen(true)} />
           </div>
-          {photo.media_type === 'video' && (prev || next) && (
+          {photo.media_type === 'video' && !simple && (prev || next) && (
             <div className="flex sm:hidden">
-              <IconButton label="前へ" disabled={!prev} onClick={() => go(prev)} className="disabled:opacity-30">
+              <IconButton label="前へ" showLabel disabled={!prev} onClick={() => go(prev)} className="disabled:opacity-30">
                 <ChevronLeft className="size-6" />
               </IconButton>
-              <IconButton label="次へ" disabled={!next} onClick={() => go(next)} className="disabled:opacity-30">
+              <IconButton label="次へ" showLabel disabled={!next} onClick={() => go(next)} className="disabled:opacity-30">
                 <ChevronRight className="size-6" />
               </IconButton>
             </div>
           )}
-          <IconButton label="ダウンロード" className="hover:bg-white/10" onClick={onDownload} disabled={downloading}>
-            {downloading ? <Loader2 className="size-5 animate-spin" /> : <Download className="size-5" />}
+          <IconButton label="保存" showLabel className="hover:bg-white/10" onClick={onDownload} disabled={downloading}>
+            {downloading ? <Loader2 className="size-6 animate-spin" /> : <Download className="size-6" />}
           </IconButton>
         </div>
       </div>
@@ -243,7 +262,7 @@ export function PhotoViewerPage() {
       <Sheet open={menuOpen} onClose={() => setMenuOpen(false)}>
         <div className="py-2">
           <SheetItem icon={<Download className="size-5" />} onClick={onDownload}>
-            オリジナルをダウンロード
+            スマホに保存
           </SheetItem>
           {canChangeCover && photo.media_type === 'image' && photo.thumb_path && (
             <SheetItem
@@ -252,13 +271,13 @@ export function PhotoViewerPage() {
                 setMenuOpen(false);
                 try {
                   await setAlbumCover(photo.album_id, photo.id);
-                  toast('カバーに設定しました');
+                  toast('アルバムの表紙にしました');
                 } catch (e) {
                   toast(toMessage(e), 'error');
                 }
               }}
             >
-              アルバムのカバーに設定
+              この写真をアルバムの表紙にする
             </SheetItem>
           )}
           {canDelete && (
@@ -339,7 +358,7 @@ function VideoSlide({ photo }: { photo: PhotoWithUploader }) {
     <div className="absolute inset-0 flex items-center justify-center pt-14 pb-24">
       {error ? (
         <p className="px-6 text-center text-sm text-white/80">
-          この端末では再生できない形式の可能性があります。ダウンロードしてお試しください。
+          この端末では再生できない形式かもしれません。「保存」を押してスマホに保存してからお試しください。
         </p>
       ) : src ? (
         <video

@@ -28,7 +28,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     <button
       ref={ref}
       className={`inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 ${
-        size === 'md' ? 'min-h-12 px-5 text-[15px]' : 'min-h-10 px-4 text-sm'
+        size === 'md' ? 'min-h-14 px-6 text-base' : 'min-h-11 px-4 text-sm'
       } ${variants[variant]} ${block ? 'w-full' : ''} ${className}`}
       disabled={disabled || loading}
       {...rest}
@@ -41,19 +41,50 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 export function IconButton({
   label,
+  showLabel,
   className = '',
   children,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; /** アイコンの下に文字を表示 (何のボタンか分かるように) */ showLabel?: boolean }) {
+  if (showLabel) {
+    return (
+      <button
+        aria-label={label}
+        className={`inline-flex min-h-12 min-w-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 text-xs font-medium transition hover:bg-surface-2 active:scale-95 ${className}`}
+        {...rest}
+      >
+        {children}
+        <span aria-hidden className="leading-none">
+          {label}
+        </span>
+      </button>
+    );
+  }
   return (
     <button
       aria-label={label}
       title={label}
-      className={`inline-flex size-11 items-center justify-center rounded-full transition hover:bg-surface-2 active:scale-95 ${className}`}
+      className={`inline-flex size-12 items-center justify-center rounded-full transition hover:bg-surface-2 active:scale-95 ${className}`}
       {...rest}
     >
       {children}
     </button>
+  );
+}
+
+/** 画面上部のヘッダー用: アイコン + 文字のリンク */
+export function HeaderLink({ to, label, icon }: { to: string; label: string; icon: ReactNode }) {
+  return (
+    <Link
+      to={to}
+      aria-label={label}
+      className="inline-flex min-h-12 min-w-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 text-xs font-medium transition hover:bg-surface-2 active:scale-95"
+    >
+      {icon}
+      <span aria-hidden className="leading-none">
+        {label}
+      </span>
+    </Link>
   );
 }
 
@@ -62,14 +93,14 @@ export const TextField = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLIn
     const inputId = id ?? `f-${label}`;
     return (
       <label htmlFor={inputId} className="block">
-        <span className="mb-1.5 block text-sm font-medium text-ink-2">{label}</span>
+        <span className="mb-1.5 block text-base font-medium text-ink-2">{label}</span>
         <input
           ref={ref}
           id={inputId}
-          className={`block min-h-12 w-full rounded-xl border border-line bg-surface px-4 text-base text-ink outline-none transition placeholder:text-ink-3 focus:border-accent focus:ring-2 focus:ring-accent/20 ${className}`}
+          className={`block min-h-14 w-full rounded-xl border-2 border-line bg-surface px-4 text-base text-ink outline-none transition placeholder:text-ink-3 focus:border-accent focus:ring-2 focus:ring-accent/20 ${className}`}
           {...rest}
         />
-        {hint && <span className="mt-1 block text-xs text-ink-3">{hint}</span>}
+        {hint && <span className="mt-1 block text-sm text-ink-3">{hint}</span>}
       </label>
     );
   },
@@ -81,9 +112,9 @@ export function TextArea({
 }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-ink-2">{label}</span>
+      <span className="mb-1.5 block text-base font-medium text-ink-2">{label}</span>
       <textarea
-        className="block min-h-24 w-full rounded-xl border border-line bg-surface px-4 py-3 text-base text-ink outline-none transition placeholder:text-ink-3 focus:border-accent focus:ring-2 focus:ring-accent/20"
+        className="block min-h-24 w-full rounded-xl border-2 border-line bg-surface px-4 py-3 text-base text-ink outline-none transition placeholder:text-ink-3 focus:border-accent focus:ring-2 focus:ring-accent/20"
         {...rest}
       />
     </label>
@@ -138,17 +169,18 @@ export function PageHeader({
     <header
       className={`pt-safe sticky top-0 z-30 ${transparent ? '' : 'border-b border-line/60 bg-bg/85 backdrop-blur-md'}`}
     >
-      <div className="px-safe flex h-14 items-center gap-1">
+      <div className="px-safe flex min-h-16 items-center gap-1 py-1">
         {back && (
           <IconButton
             label="戻る"
+            showLabel
             className="-ml-2"
             onClick={() => (typeof back === 'string' ? navigate(back) : window.history.length > 1 ? navigate(-1) : navigate('/'))}
           >
             <ChevronLeft className="size-6" />
           </IconButton>
         )}
-        <h1 className="min-w-0 flex-1 truncate text-lg font-bold">{title}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-xl font-bold">{title}</h1>
         {actions && <div className="flex items-center gap-1">{actions}</div>}
       </div>
     </header>
@@ -224,7 +256,7 @@ export function SheetItem({
   onClick?: () => void;
   to?: string;
 }) {
-  const cls = `flex min-h-13 w-full items-center gap-4 px-5 py-3 text-left text-[15px] transition hover:bg-surface-2 ${
+  const cls = `flex min-h-14 w-full items-center gap-4 px-5 py-3 text-left text-base font-medium transition hover:bg-surface-2 ${
     danger ? 'text-danger' : ''
   }`;
   if (to)

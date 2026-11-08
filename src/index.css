@@ -26,9 +26,10 @@
   --surface: #ffffff;
   --surface-2: #f1efeb;
   --ink: #1d1b19;
-  --ink-2: #5b5752;
-  --ink-3: #8d8780;
-  --line: #e6e2dc;
+  /* 補足の文字も背景と十分な差 (WCAG AA 4.5:1 以上) が出る濃さ */
+  --ink-2: #4a4641;
+  --ink-3: #69645e;
+  --line: #ddd8d0;
   --accent: #c24a2c;
   --accent-ink: #ffffff;
   --accent-soft: #fbe9e3;
@@ -40,7 +41,8 @@
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
   --sar: env(safe-area-inset-right, 0px);
-  --nav-h: 60px;
+  /* rem 単位: 文字の大きさの設定に合わせてメニューも大きくなる */
+  --nav-h: 4.25rem;
   color-scheme: light;
 }
 
@@ -49,15 +51,26 @@
   --surface: #1c1b19;
   --surface-2: #2a2826;
   --ink: #f3f1ee;
-  --ink-2: #bdb7b0;
-  --ink-3: #8a847d;
-  --line: #34312e;
+  --ink-2: #cfc9c2;
+  --ink-3: #a8a29b;
+  --line: #3d3a36;
   --accent: #ff8a6b;
   --accent-ink: #1d1b19;
   --accent-soft: #3a2420;
   --danger: #ff6b6b;
   --success: #5fc48a;
   color-scheme: dark;
+}
+
+/* 文字の大きさ (設定画面で切替)。rem で指定した文字・余白・ボタンがまとめて拡大される */
+html {
+  font-size: 106.25%; /* 17px */
+}
+html[data-text-size='large'] {
+  font-size: 118.75%; /* 19px */
+}
+html[data-text-size='xlarge'] {
+  font-size: 131.25%; /* 21px */
 }
 
 html,
@@ -72,8 +85,8 @@ body {
 
 body {
   min-height: 100dvh;
-  font-size: 16px; /* iOS で入力欄フォーカス時に勝手にズームしないよう 16px 以上 */
-  line-height: 1.6;
+  font-size: 1rem; /* 17px 以上 (iOS で入力欄フォーカス時に勝手にズームしないよう 16px 以上) */
+  line-height: 1.65;
 }
 
 #root {

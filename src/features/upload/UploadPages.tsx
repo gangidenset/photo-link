@@ -4,6 +4,7 @@ import { AlertCircle, Camera, CheckCircle2, Copy, Film, ImageIcon, Images, Loade
 import { useAlbum } from '@/features/albums/api';
 import { formatBytes } from '@/lib/format';
 import { isIOS } from '@/lib/platform';
+import { useSimpleMode } from '@/lib/display';
 import { Button, EmptyState, FullPageSpinner, IconButton, PageHeader, ProgressBar } from '@/components/ui';
 import { ACCEPT_ATTR } from './fileTypes';
 import { useUploadQuality } from './quality';
@@ -49,7 +50,7 @@ const SelectedTile = memo(function SelectedTile({ file, onRemove }: { file: File
       ) : (
         <div className="flex size-full flex-col items-center justify-center gap-1 p-1 text-ink-3">
           {isVideo ? <Film className="size-6" /> : <ImageIcon className="size-6" />}
-          <span className="w-full truncate text-center text-[10px]">{file.name}</span>
+          <span className="w-full truncate text-center text-xs">{file.name}</span>
         </div>
       )}
       <button
@@ -72,6 +73,7 @@ export function UploadPickerPage() {
   const videoInput = useRef<HTMLInputElement>(null);
   const enqueue = useUploadStore((s) => s.enqueue);
   const quality = useUploadQuality((s) => s.quality);
+  const simple = useSimpleMode();
   const navigate = useNavigate();
   // 写真選択の画面を閉じてから、ファイルが届くまでの「準備中」表示
   //   iPhone は選んだ写真・動画をブラウザに渡す前に変換 (HEIC → JPEG、動画の圧縮) や
@@ -107,6 +109,12 @@ export function UploadPickerPage() {
   function addFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
     const incoming = Array.from(list);
+    // かんたんモード: 選んだらそのまま送る (確認の手間を省く)
+    if (simple && albumId) {
+      enqueue(albumId, incoming);
+      navigate('/uploads');
+      return;
+    }
     setFiles((prev) => {
       const seen = new Set(prev.map((f) => `${f.name}:${f.size}:${f.lastModified}`));
       return [...prev, ...incoming.filter((f) => !seen.has(`${f.name}:${f.size}:${f.lastModified}`))];
@@ -125,15 +133,17 @@ export function UploadPickerPage() {
 
   return (
     <>
-      <PageHeader title="写真・動画を追加" back={`/albums/${albumId}`} />
+      <PageHeader title="写真を送る" back={`/albums/${albumId}`} />
       <main className={`px-safe mx-auto max-w-3xl py-4 ${files.length > 0 ? 'pb-24' : ''}`}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-ink-2">
           <p>
             投稿先: <span className="font-semibold text-ink">{album.title}</span>
           </p>
-          <Link to="/settings" className="rounded-full bg-surface-2 px-3 py-1 text-xs">
-            画質: {quality === 'standard' ? '容量優先' : 'オリジナル'} ・ 変更
-          </Link>
+          {!simple && (
+            <Link to="/settings" className="rounded-full bg-surface-2 px-3 py-1 text-sm">
+              画質: {quality === 'standard' ? '容量優先' : 'オリジナル'} ・ 変更
+            </Link>
+          )}
         </div>
 
         {/* iOS / Android 共通: 標準のファイル選択 (写真ライブラリ・カメラ) を使う */}
@@ -174,11 +184,28 @@ export function UploadPickerPage() {
           }}
         />
 
-        <div className="grid grid-cols-3 gap-3">
-          <PickButton icon={<Images className="size-7" />} label="ライブラリ" onClick={() => openPicker(libraryInput.current)} primary />
-          <PickButton icon={<Camera className="size-7" />} label="写真を撮る" onClick={() => openPicker(cameraInput.current)} />
-          <PickButton icon={<Video className="size-7" />} label="動画を撮る" onClick={() => openPicker(videoInput.current)} />
-        </div>
+        {simple ? (
+          <div className="space-y-3">
+            <button
+              onClick={() => openPicker(libraryInput.current)}
+              className="flex w-full flex-col items-center justify-center gap-2 rounded-3xl bg-accent py-10 text-xl font-bold text-accent-ink shadow-md transition active:scale-[0.98]"
+            >
+              <Images className="size-12" />
+              写真を選ぶ
+            </button>
+            <p className="text-center text-base text-ink-2">選んだ写真は、そのままアルバムに送られます。</p>
+            <Button block variant="secondary" onClick={() => openPicker(cameraInput.current)}>
+              <Camera className="size-6" />
+              カメラで撮って送る
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            <PickButton icon={<Images className="size-7" />} label="写真を選ぶ" onClick={() => openPicker(libraryInput.current)} primary />
+            <PickButton icon={<Camera className="size-7" />} label="写真を撮る" onClick={() => openPicker(cameraInput.current)} />
+            <PickButton icon={<Video className="size-7" />} label="動画を撮る" onClick={() => openPicker(videoInput.current)} />
+          </div>
+        )}
 
         {preparing && (
           <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6" role="alertdialog" aria-live="polite" aria-label="写真を準備しています">
@@ -232,7 +259,7 @@ export function UploadPickerPage() {
       {files.length > 0 && (
         <div className="bottom-nav-offset px-safe fixed inset-x-0 z-30 flex justify-center">
           <Button className="w-full max-w-md shadow-lg" onClick={start}>
-            {files.length} 件をアップロード
+            {files.length} 件を送る
           </Button>
         </div>
       )}
@@ -328,10 +355,10 @@ export function UploadsPage() {
 
   return (
     <>
-      <PageHeader title="アップロード" back />
+      <PageHeader title="送信状況" back />
       <main className="mx-auto max-w-2xl py-4">
         {items.length === 0 ? (
-          <EmptyState icon={<CheckCircle2 className="size-7" />} title="アップロード中のファイルはありません" />
+          <EmptyState icon={<CheckCircle2 className="size-7" />} title="送信中の写真はありません" />
         ) : (
           <>
             <section className="px-safe">
@@ -350,7 +377,7 @@ export function UploadsPage() {
                 </p>
                 {sum.remaining > 0 && (
                   <p className="mt-3 rounded-xl bg-surface-2 px-3 py-2 text-xs text-ink-2">
-                    アップロード中はこの画面 (またはアプリ) を開いたままにしてください。画面を閉じると中断されますが、再開すると続きから送信します。
+                    送信中はこの画面を開いたままにしてください。画面を閉じると止まりますが、もう一度開くと続きから送ります。
                   </p>
                 )}
                 <div className="mt-4 flex flex-wrap gap-2">

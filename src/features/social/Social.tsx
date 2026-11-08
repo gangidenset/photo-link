@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Heart, Send, SmilePlus, Trash2 } from 'lucide-react';
+import { Heart, MessageCircle, Send, SmilePlus, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { queryClient } from '@/lib/queryClient';
 import { toMessage } from '@/lib/errors';
@@ -95,15 +95,21 @@ export function ReactionBar({ photoId, onOpenComments, commentCount }: { photoId
         aria-label={liked ? 'いいねを取り消す' : 'いいね'}
         aria-pressed={liked}
         onClick={() => toggle.mutate({ emoji: '❤️', active: liked })}
-        className="flex size-11 items-center justify-center rounded-full transition active:scale-90"
+        className="flex min-h-12 min-w-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 text-xs font-medium transition active:scale-90"
       >
         <Heart className={`size-6 ${liked ? 'fill-[#ff4d6d] text-[#ff4d6d]' : ''}`} />
+        <span aria-hidden>いいね</span>
       </button>
-      <IconButton label="絵文字でリアクション" onClick={() => setPickerOpen(true)}>
+      <IconButton label="きもち" showLabel onClick={() => setPickerOpen(true)} aria-label="絵文字でリアクション">
         <SmilePlus className="size-6" />
       </IconButton>
-      <button onClick={onOpenComments} className="flex min-h-11 items-center gap-1.5 rounded-full px-3 text-sm font-medium" aria-label="コメントを開く">
-        コメント{commentCount > 0 && ` ${commentCount}`}
+      <button
+        onClick={onOpenComments}
+        className="flex min-h-12 min-w-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 text-xs font-medium"
+        aria-label="コメントを開く"
+      >
+        <MessageCircle className="size-6" />
+        <span aria-hidden>コメント{commentCount > 0 && ` ${commentCount}`}</span>
       </button>
       {grouped.length > 0 && (
         <button onClick={() => setWhoOpen(true)} className="ml-auto flex min-h-9 items-center gap-1 rounded-full bg-white/15 px-3 text-sm" aria-label="リアクションした人を見る">
@@ -213,7 +219,7 @@ export function CommentsSheet({
                       {formatRelative(c.created_at)}
                     </p>
                     {/* React が自動でエスケープするため、HTML として解釈されない (XSS 対策) */}
-                    <p className="mt-0.5 text-[15px] break-words whitespace-pre-wrap">{c.body}</p>
+                    <p className="mt-0.5 text-base break-words whitespace-pre-wrap">{c.body}</p>
                   </div>
                   {(c.author_id === userId || isAlbumOwner) && (
                     <IconButton

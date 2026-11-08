@@ -3,9 +3,11 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import { App } from './App';
 import { initTheme } from './lib/theme';
+import { initDisplay } from './lib/display';
 import { initInstallPrompt } from './features/profile/install';
 
 initTheme();
+initDisplay();
 initInstallPrompt();
 
 createRoot(document.getElementById('root')!).render(
